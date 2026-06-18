@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use eframe::egui;
 
 use crate::{
@@ -386,6 +388,7 @@ impl MtdApp {
                             .size(16.0)
                             .color(INK),
                     );
+                    let speaker_labels = unique_speaker_labels(&snapshot.segments);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let has_preview = has_subtitle_preview(&snapshot.preview);
                         if ui
@@ -395,6 +398,10 @@ impl MtdApp {
                             ui.ctx().copy_text(snapshot.preview.clone());
                         }
                         ui.add_space(8.0);
+                        if has_preview && !speaker_labels.is_empty() {
+                            self.render_speaker_editor(ui, &speaker_labels);
+                            ui.add_space(8.0);
+                        }
                         preview_mode_switch(ui, &mut self.preview_mode);
                     });
                 },
@@ -404,12 +411,79 @@ impl MtdApp {
             if has_subtitle_preview(&snapshot.preview) {
                 match self.preview_mode {
                     PreviewMode::Raw => raw_preview(ui, &snapshot.preview),
-                    PreviewMode::Rendered => rendered_preview(ui, &snapshot.segments),
+                    PreviewMode::Rendered => {
+                        rendered_preview(ui, &snapshot.segments, &self.speaker_names)
+                    }
                 }
             } else {
                 empty_preview(ui);
             }
         });
+    }
+
+    fn render_speaker_editor(&mut self, ui: &mut egui::Ui, speakers: &[String]) {
+        let response = ui.add(
+            egui::Button::new(
+                egui::RichText::new("说话人")
+                    .size(12.0)
+                    .strong()
+                    .color(ACCENT_DARK),
+            )
+            .min_size(egui::vec2(70.0, 26.0))
+            .fill(ACCENT_SOFT)
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(190, 226, 221),
+            ))
+            .corner_radius(13.0),
+        );
+
+        egui::Popup::from_toggle_button_response(&response)
+            .width(360.0)
+            .gap(8.0)
+            .frame(settings_popup_frame())
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                ui.set_min_width(360.0);
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("说话人命名")
+                                .size(15.0)
+                                .strong()
+                                .color(INK),
+                        );
+                        ui.label(
+                            egui::RichText::new("将 S01 等标签替换为真实姓名")
+                                .size(12.0)
+                                .color(FAINT),
+                        );
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        soft_badge(ui, &format!("{} 位", speakers.len()));
+                    });
+                });
+
+                ui.add_space(10.0);
+                for speaker in speakers {
+                    speaker_name_row(ui, speaker, &mut self.speaker_names);
+                    ui.add_space(6.0);
+                }
+
+                ui.add_space(8.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let has_any_name = self
+                        .speaker_names
+                        .values()
+                        .any(|name| !name.trim().is_empty());
+                    if ui
+                        .add_enabled(has_any_name, primary_small_button("应用到字幕"))
+                        .clicked()
+                    {
+                        self.apply_speaker_names();
+                    }
+                });
+            });
     }
 }
 
@@ -534,6 +608,19 @@ fn tiny_status_chip(ui: &mut egui::Ui, label: &str, ready: bool) {
         .show(ui, |ui| {
             ui.label(egui::RichText::new(label).size(12.0).strong().color(text));
         });
+}
+
+fn primary_small_button(label: &str) -> egui::Button<'_> {
+    egui::Button::new(
+        egui::RichText::new(label)
+            .size(12.0)
+            .strong()
+            .color(egui::Color32::WHITE),
+    )
+    .min_size(egui::vec2(84.0, 28.0))
+    .fill(ACCENT)
+    .stroke(egui::Stroke::new(1.0, ACCENT))
+    .corner_radius(8.0)
 }
 
 fn setting_row_button(
@@ -907,7 +994,11 @@ fn raw_preview(ui: &mut egui::Ui, preview: &str) {
         });
 }
 
-fn rendered_preview(ui: &mut egui::Ui, segments: &[Segment]) {
+fn rendered_preview(
+    ui: &mut egui::Ui,
+    segments: &[Segment],
+    speaker_names: &BTreeMap<String, String>,
+) {
     if segments.is_empty() {
         empty_structured_preview(ui);
         return;
@@ -917,7 +1008,7 @@ fn rendered_preview(ui: &mut egui::Ui, segments: &[Segment]) {
         .max_height(280.0)
         .show(ui, |ui| {
             for (index, segment) in segments.iter().enumerate() {
-                segment_row(ui, index + 1, segment);
+                segment_row(ui, index + 1, segment, speaker_names);
                 if index + 1 < segments.len() {
                     ui.add_space(6.0);
                 }
@@ -925,7 +1016,12 @@ fn rendered_preview(ui: &mut egui::Ui, segments: &[Segment]) {
         });
 }
 
-fn segment_row(ui: &mut egui::Ui, index: usize, segment: &Segment) {
+fn segment_row(
+    ui: &mut egui::Ui,
+    index: usize,
+    segment: &Segment,
+    speaker_names: &BTreeMap<String, String>,
+) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -962,8 +1058,9 @@ fn segment_row(ui: &mut egui::Ui, index: usize, segment: &Segment) {
                         .color(MUTED),
                     ),
                 );
-                if !segment.speaker.is_empty() {
-                    compact_speaker_badge(ui, &segment.speaker);
+                let speaker = display_speaker(&segment.speaker, speaker_names);
+                if !speaker.is_empty() {
+                    compact_speaker_badge(ui, &speaker);
                 } else {
                     ui.add_sized([48.0, 24.0], egui::Label::new(""));
                 }
@@ -971,6 +1068,27 @@ fn segment_row(ui: &mut egui::Ui, index: usize, segment: &Segment) {
                 ui.add(
                     egui::Label::new(egui::RichText::new(&segment.text).size(14.0).color(INK))
                         .wrap(),
+                );
+            });
+        });
+}
+
+fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<String, String>) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                compact_speaker_badge(ui, speaker);
+                ui.add_space(6.0);
+                let value = names.entry(speaker.to_owned()).or_default();
+                ui.add_sized(
+                    [ui.available_width(), 24.0],
+                    egui::TextEdit::singleline(value)
+                        .frame(false)
+                        .hint_text("输入真实姓名"),
                 );
             });
         });
@@ -990,6 +1108,26 @@ fn compact_speaker_badge(ui: &mut egui::Ui, label: &str) {
                     .size(12.0),
             );
         });
+}
+
+fn unique_speaker_labels(segments: &[Segment]) -> Vec<String> {
+    let speakers: BTreeSet<String> = segments
+        .iter()
+        .filter_map(|segment| {
+            let speaker = segment.speaker.trim();
+            (!speaker.is_empty()).then(|| speaker.to_owned())
+        })
+        .collect();
+    speakers.into_iter().collect()
+}
+
+fn display_speaker(speaker: &str, names: &BTreeMap<String, String>) -> String {
+    names
+        .get(speaker)
+        .map(|name| name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(speaker)
+        .to_owned()
 }
 
 fn empty_structured_preview(ui: &mut egui::Ui) {

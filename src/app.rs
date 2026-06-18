@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
@@ -13,6 +14,7 @@ use crate::{
     models::{JobSnapshot, PreviewMode},
     pipeline::run_job,
     platform::default_output_dir,
+    subtitles::{render_srt, write_srt, write_vtt},
     theme::CANVAS,
 };
 
@@ -25,6 +27,7 @@ pub(crate) struct MtdApp {
     pub(crate) include_speaker: bool,
     pub(crate) model_picker_open: bool,
     pub(crate) preview_mode: PreviewMode,
+    pub(crate) speaker_names: BTreeMap<String, String>,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
     pub(crate) burning: bool,
@@ -41,6 +44,7 @@ impl Default for MtdApp {
             include_speaker: true,
             model_picker_open: false,
             preview_mode: PreviewMode::Rendered,
+            speaker_names: BTreeMap::new(),
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
             burning: false,
@@ -95,12 +99,14 @@ impl MtdApp {
         let job = Arc::clone(&self.job);
 
         self.running = true;
+        self.speaker_names.clear();
         {
             let mut state = job.lock().expect("job lock");
             *state = JobSnapshot {
                 status: "正在准备任务".to_owned(),
                 progress: 4.0,
                 preview: "等待字幕生成。".to_owned(),
+                include_speaker,
                 ..JobSnapshot::default()
             };
         }
@@ -175,5 +181,32 @@ impl MtdApp {
                 }
             }
         });
+    }
+
+    pub(crate) fn apply_speaker_names(&mut self) {
+        let mut state = self.job.lock().expect("job lock");
+        if state.segments.is_empty() {
+            return;
+        }
+
+        for segment in &mut state.segments {
+            if let Some(name) = self.speaker_names.get(&segment.speaker) {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    segment.speaker = trimmed.to_owned();
+                }
+            }
+        }
+        self.speaker_names.clear();
+
+        if let Ok(preview) = render_srt(&state.segments, state.include_speaker) {
+            state.preview = preview;
+        }
+        if let Some(srt_path) = &state.srt_path {
+            let _ = write_srt(srt_path, &state.segments, state.include_speaker);
+        }
+        if let Some(vtt_path) = &state.vtt_path {
+            let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
+        }
     }
 }

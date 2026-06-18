@@ -52,7 +52,17 @@ pub(crate) fn normalize_segments(transcript: &Value) -> Result<Vec<Segment>> {
 }
 
 pub(crate) fn write_srt(path: &Path, segments: &[Segment], include_speaker: bool) -> Result<()> {
-    let mut file = fs::File::create(path)?;
+    fs::write(path, render_srt(segments, include_speaker)?)?;
+    Ok(())
+}
+
+pub(crate) fn write_vtt(path: &Path, segments: &[Segment], include_speaker: bool) -> Result<()> {
+    fs::write(path, render_vtt(segments, include_speaker)?)?;
+    Ok(())
+}
+
+pub(crate) fn render_srt(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    let mut output = Vec::new();
     for (index, segment) in segments.iter().enumerate() {
         let text = if include_speaker && !segment.speaker.is_empty() {
             format!("{}: {}", segment.speaker, segment.text)
@@ -60,7 +70,7 @@ pub(crate) fn write_srt(path: &Path, segments: &[Segment], include_speaker: bool
             segment.text.clone()
         };
         writeln!(
-            file,
+            output,
             "{}\n{} --> {}\n{}\n",
             index + 1,
             srt_time(segment.start),
@@ -68,12 +78,12 @@ pub(crate) fn write_srt(path: &Path, segments: &[Segment], include_speaker: bool
             text
         )?;
     }
-    Ok(())
+    String::from_utf8(output).context("无法生成 SRT 文本")
 }
 
-pub(crate) fn write_vtt(path: &Path, segments: &[Segment], include_speaker: bool) -> Result<()> {
-    let mut file = fs::File::create(path)?;
-    writeln!(file, "WEBVTT\n")?;
+pub(crate) fn render_vtt(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    let mut output = Vec::new();
+    writeln!(output, "WEBVTT\n")?;
     for segment in segments {
         let text = if include_speaker && !segment.speaker.is_empty() {
             format!("<v {}>{}", segment.speaker, segment.text)
@@ -81,14 +91,14 @@ pub(crate) fn write_vtt(path: &Path, segments: &[Segment], include_speaker: bool
             segment.text.clone()
         };
         writeln!(
-            file,
+            output,
             "{} --> {}\n{}\n",
             vtt_time(segment.start),
             vtt_time(segment.end),
             text
         )?;
     }
-    Ok(())
+    String::from_utf8(output).context("无法生成 VTT 文本")
 }
 
 fn seconds_from_value(value: Option<&Value>) -> Result<f64> {
@@ -120,4 +130,24 @@ fn srt_time(seconds: f64) -> String {
 
 fn vtt_time(seconds: f64) -> String {
     srt_time(seconds).replace(',', ".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_srt;
+    use crate::models::Segment;
+
+    #[test]
+    fn renders_speaker_name_into_srt_text() {
+        let segments = vec![Segment {
+            start: 2.54,
+            end: 4.49,
+            speaker: "张三".to_owned(),
+            text: "你好".to_owned(),
+        }];
+
+        let srt = render_srt(&segments, true).expect("render srt");
+
+        assert!(srt.contains("张三: 你好"));
+    }
 }

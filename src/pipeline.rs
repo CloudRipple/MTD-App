@@ -15,7 +15,7 @@ use crate::{
     media::{extract_audio, has_video_stream},
     media_types::is_direct_audio_path,
     models::JobSnapshot,
-    subtitles::{normalize_segments, write_srt, write_vtt},
+    subtitles::{normalize_segments, render_srt, write_srt, write_vtt},
 };
 
 pub(crate) fn run_job(
@@ -124,16 +124,18 @@ pub(crate) fn run_job(
         .and_then(|usage| usage.get("total_tokens"))
         .map(|value| format!("{value} total"))
         .unwrap_or_else(|| "-".to_owned());
-    let preview = fs::read_to_string(&srt_path)?;
+    let preview = render_srt(&segments, include_speaker)?;
     let mut state = job.lock().expect("job lock");
     state.status = "完成".to_owned();
     state.progress = 100.0;
     state.usage = usage;
     state.preview = preview;
     state.segments = segments;
+    state.include_speaker = include_speaker;
     state.output_dir = Some(job_dir);
     state.input_video_path = input_has_video.then_some(input_copy);
     state.srt_path = Some(srt_path);
+    state.vtt_path = Some(vtt_path);
     state.subtitled_path = subtitled_path;
     state.done = true;
     Ok(())
