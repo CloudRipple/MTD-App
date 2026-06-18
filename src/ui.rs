@@ -106,6 +106,16 @@ impl MtdApp {
             "配置已就绪，可以开始生成字幕。"
         };
         ui.label(egui::RichText::new(hint).size(13.0).color(FAINT));
+        if self.api_key.trim().is_empty() {
+            ui.add_space(2.0);
+            ui.hyperlink_to(
+                egui::RichText::new("获取 API Key")
+                    .size(13.0)
+                    .strong()
+                    .color(ACCENT_DARK),
+                "https://studio.mosi.cn/account/api-keys",
+            );
+        }
     }
 
     fn render_settings_menu(&mut self, ui: &mut egui::Ui) {
