@@ -4,9 +4,12 @@ set -euo pipefail
 FONT_FILE="assets/fonts/HarmonyOS_Sans_SC_Regular.ttf"
 NOTICE_FILE="NOTICE.md"
 THIRD_PARTY_FILE="THIRD_PARTY_NOTICES.md"
+APP_DIR="dist/macos/MTDSubtitleApp.app"
 
 if [ ! -f "$FONT_FILE" ]; then
+  rm -rf "$APP_DIR"
   echo "Missing $FONT_FILE"
+  echo "Removed stale $APP_DIR so an old app bundle cannot be opened by mistake."
   echo "Download HarmonyOS Sans from the official Huawei design resource page, then place the Simplified Chinese regular TTF at this path."
   exit 1
 fi
@@ -14,7 +17,6 @@ fi
 cargo build --release
 mkdir -p dist/macos
 
-APP_DIR="dist/macos/MTDSubtitleApp.app"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Resources/fonts" "$APP_DIR/Contents/Resources/legal"
