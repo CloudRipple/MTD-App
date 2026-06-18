@@ -1,0 +1,18 @@
+[package]
+name = "mtd-subtitle-app"
+version = "0.1.0"
+edition = "2024"
+description = "Cross-platform desktop app for creating video subtitles with MOSS-Transcribe-Diarize"
+
+[dependencies]
+anyhow = "1.0"
+eframe = "0.33"
+egui = "0.33"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+rfd = "0.15"
+serde_json = "1.0"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
