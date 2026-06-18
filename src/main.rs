@@ -121,34 +121,7 @@ impl eframe::App for MtdApp {
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(14.0, 12.0);
 
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(
-                            egui::RichText::new("视频字幕工作台")
-                                .size(32.0)
-                                .strong()
-                                .color(INK),
-                        );
-                        ui.label(
-                            egui::RichText::new("本地分离音频，调用 MOSS 转写，生成可编辑字幕文件")
-                                .color(MUTED),
-                        );
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                        egui::Frame::NONE
-                            .fill(ACCENT_SOFT)
-                            .corner_radius(999.0)
-                            .inner_margin(egui::Margin::symmetric(12, 6))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new("本地音频处理")
-                                        .color(ACCENT_DARK)
-                                        .strong()
-                                        .size(13.0),
-                                );
-                            });
-                    });
-                });
+                render_app_header(ui);
 
                 ui.add_space(12.0);
 
@@ -506,6 +479,62 @@ fn panel_frame() -> egui::Frame {
         .stroke(egui::Stroke::new(1.0, BORDER))
         .corner_radius(10.0)
         .inner_margin(egui::Margin::symmetric(18, 14))
+}
+
+fn render_app_header(ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        #[cfg(target_os = "macos")]
+        ui.add_space(72.0);
+
+        ui.vertical(|ui| {
+            ui.heading(
+                egui::RichText::new("视频字幕工作台")
+                    .size(32.0)
+                    .strong()
+                    .color(INK),
+            );
+            ui.label(
+                egui::RichText::new("本地分离音频，调用 MOSS 转写，生成可编辑字幕文件")
+                    .color(MUTED),
+            );
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+            egui::Frame::NONE
+                .fill(ACCENT_SOFT)
+                .corner_radius(999.0)
+                .inner_margin(egui::Margin::symmetric(12, 6))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("本地音频处理")
+                            .color(ACCENT_DARK)
+                            .strong()
+                            .size(13.0),
+                    );
+                });
+        });
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn app_viewport() -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_app_id("cn.mtd.subtitle-app")
+        .with_title("MTD 字幕工作台")
+        .with_fullsize_content_view(true)
+        .with_title_shown(false)
+        .with_titlebar_shown(false)
+        .with_movable_by_background(true)
+        .with_inner_size([1040.0, 760.0])
+        .with_min_inner_size([860.0, 620.0])
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_viewport() -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_app_id("cn.mtd.subtitle-app")
+        .with_title("MTD 字幕工作台")
+        .with_inner_size([1040.0, 760.0])
+        .with_min_inner_size([860.0, 620.0])
 }
 
 fn field_label(ui: &mut egui::Ui, text: &str) {
@@ -1238,11 +1267,7 @@ fn default_output_dir() -> PathBuf {
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_app_id("cn.mtd.subtitle-app")
-            .with_title("MTD 字幕工作台")
-            .with_inner_size([1040.0, 760.0])
-            .with_min_inner_size([860.0, 620.0]),
+        viewport: app_viewport(),
         #[cfg(target_os = "macos")]
         event_loop_builder: Some(Box::new(|builder| {
             builder
