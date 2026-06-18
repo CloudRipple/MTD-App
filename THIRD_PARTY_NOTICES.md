@@ -23,12 +23,25 @@ This file summarizes third-party assets and direct Rust dependencies used by MTD
 ### ffmpeg
 
 - Type: External executable
+- Source submodule: `vendor/ffmpeg-src`
 - Expected files:
   - `vendor/ffmpeg/macos/ffmpeg`
   - `vendor/ffmpeg/linux/ffmpeg`
   - `vendor/ffmpeg/windows/ffmpeg.exe`
-- License: Depends on the selected binary build and configure flags. Common possibilities include LGPL and GPL.
-- Required release record: source URL, version, configure flags, license text, and any required offer for source code.
+- Build scripts:
+  - macOS/Linux: `scripts/build-ffmpeg.sh`
+  - Windows: `scripts/build-ffmpeg-windows.ps1`
+- Default configure flags: `--pkg-config-flags=--static --disable-gpl --disable-nonfree --enable-libass`
+- Intended license profile: LGPL-compatible FFmpeg build. Do not enable GPL or nonfree FFmpeg components without updating the product license review and release notices.
+- Distribution location:
+  - macOS: `MTDSubtitleApp.app/Contents/Resources/ffmpeg`
+  - Linux: `dist/linux/ffmpeg`
+  - Windows: `dist/windows/ffmpeg.exe`
+- License distribution location:
+  - macOS: `MTDSubtitleApp.app/Contents/Resources/legal/ffmpeg/`
+  - Linux: `dist/linux/legal/ffmpeg/`
+  - Windows: `dist/windows/legal/ffmpeg/`
+- Required release record: source URL, exact submodule commit, configure flags, license text, and any required offer for source code.
 
 ## Direct Rust Dependencies
 

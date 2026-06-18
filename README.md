@@ -73,7 +73,19 @@ MACOS_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/b
 
 ### 随包携带 ffmpeg
 
-要做到跨平台随包携带 ffmpeg，不是把一个 ffmpeg 用在所有平台，而是为每个平台放入各自的 ffmpeg 二进制：
+FFmpeg 源码作为 git submodule 管理：
+
+```text
+vendor/ffmpeg-src
+```
+
+首次拉取仓库后先初始化 submodule：
+
+```sh
+git submodule update --init --depth 1 vendor/ffmpeg-src
+```
+
+分发脚本会在打包前从该源码编译当前平台的 ffmpeg，并输出到：
 
 ```text
 vendor/ffmpeg/macos/ffmpeg
@@ -81,7 +93,7 @@ vendor/ffmpeg/linux/ffmpeg
 vendor/ffmpeg/windows/ffmpeg.exe
 ```
 
-然后在对应平台运行构建脚本。脚本会复制匹配平台的 ffmpeg：
+然后脚本会复制匹配平台的 ffmpeg：
 
 - macOS：复制到 `MTDSubtitleApp.app/Contents/Resources/ffmpeg`
 - Linux：复制到 `dist/linux/ffmpeg`
@@ -89,7 +101,17 @@ vendor/ffmpeg/windows/ffmpeg.exe
 
 应用启动后会优先找随包 ffmpeg；找不到时再找 `FFMPEG_PATH` 或系统 PATH。
 
-注意：ffmpeg 的授权取决于你下载或编译的版本。很多静态构建是 LGPL，也有启用 GPL 组件的构建。正式商用分发前需要保留对应 license，并确认所选构建的授权要求。
+默认构建参数使用 LGPL-compatible 配置：`--pkg-config-flags=--static --disable-gpl --disable-nonfree --enable-libass`。`libass` 是必须项，因为“烧录到视频”使用 FFmpeg 的 `subtitles` filter。
+
+macOS 打包脚本还会收集 Homebrew/本地前缀中的 FFmpeg 运行时 dylib 依赖，复制到 `.app/Contents/Resources/lib`，改写为 `@rpath` 路径并重新签名，避免用户机器上必须安装 Homebrew。
+
+构建依赖：
+
+- macOS：`brew install libass pkg-config`
+- Linux：安装 `pkg-config` 和 `libass-dev`/`libass-devel`
+- Windows：使用 MSYS2 MinGW，安装 `mingw-w64-x86_64-libass` 和 `pkgconf`，必要时设置 `MSYS2_BASH`
+
+脚本会把 FFmpeg 的 license 文件和 `BUILD_INFO.txt` 复制到分发包的 `legal/ffmpeg` 目录。正式商用分发前仍需基于实际构建参数复核 LGPL/GPL 要求。
 
 ### 随包携带鸿蒙字体
 

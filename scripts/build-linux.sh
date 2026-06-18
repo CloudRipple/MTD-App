@@ -12,6 +12,7 @@ if [ ! -f "$FONT_FILE" ] || [ ! -f "$FONT_LICENSE_FILE" ]; then
   exit 1
 fi
 
+scripts/build-ffmpeg.sh linux
 cargo build --release
 mkdir -p dist/linux
 mkdir -p dist/linux/fonts dist/linux/legal
@@ -19,6 +20,12 @@ cp target/release/mtd-subtitle-app dist/linux/MTDSubtitleApp
 chmod +x dist/linux/MTDSubtitleApp
 cp "$FONT_FILE" dist/linux/fonts/
 cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" "$FONT_LICENSE_FILE" dist/linux/legal/
+mkdir -p dist/linux/legal/ffmpeg
+cp vendor/ffmpeg-src/LICENSE.md \
+  vendor/ffmpeg-src/COPYING.LGPLv2.1 \
+  vendor/ffmpeg-src/COPYING.LGPLv3 \
+  vendor/ffmpeg/linux/BUILD_INFO.txt \
+  dist/linux/legal/ffmpeg/
 cat > dist/linux/MTDSubtitleApp.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
@@ -28,11 +35,6 @@ Exec=MTDSubtitleApp
 Terminal=false
 Categories=AudioVideo;Utility;
 DESKTOP
-if [ -f vendor/ffmpeg/linux/ffmpeg ]; then
-  cp vendor/ffmpeg/linux/ffmpeg dist/linux/ffmpeg
-  chmod +x dist/linux/ffmpeg
-elif [ -f vendor/ffmpeg/ffmpeg ]; then
-  cp vendor/ffmpeg/ffmpeg dist/linux/ffmpeg
-  chmod +x dist/linux/ffmpeg
-fi
+cp vendor/ffmpeg/linux/ffmpeg dist/linux/ffmpeg
+chmod +x dist/linux/ffmpeg
 echo "Build output: dist/linux"

@@ -6,3 +6,6 @@ build/
 dist/
 target/
 .pyinstaller/
+vendor/ffmpeg/macos/
+vendor/ffmpeg/linux/
+vendor/ffmpeg/windows/
