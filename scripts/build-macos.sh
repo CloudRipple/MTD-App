@@ -2,15 +2,17 @@
 set -euo pipefail
 
 FONT_FILE="assets/fonts/HarmonyOS_Sans_SC_Regular.ttf"
+FONT_LICENSE_FILE="assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt"
 NOTICE_FILE="NOTICE.md"
 THIRD_PARTY_FILE="THIRD_PARTY_NOTICES.md"
 APP_DIR="dist/macos/MTDSubtitleApp.app"
+CODESIGN_IDENTITY="${MACOS_CODESIGN_IDENTITY:--}"
 
-if [ ! -f "$FONT_FILE" ]; then
+if [ ! -f "$FONT_FILE" ] || [ ! -f "$FONT_LICENSE_FILE" ]; then
   rm -rf "$APP_DIR"
-  echo "Missing $FONT_FILE"
+  echo "Missing $FONT_FILE or $FONT_LICENSE_FILE"
   echo "Removed stale $APP_DIR so an old app bundle cannot be opened by mistake."
-  echo "Download HarmonyOS Sans from the official Huawei design resource page, then place the Simplified Chinese regular TTF at this path."
+  echo "Download HarmonyOS Sans from the official Huawei design resource page, then place the Simplified Chinese regular TTF and upstream license at these paths."
   exit 1
 fi
 
@@ -23,7 +25,7 @@ mkdir -p "$APP_DIR/Contents/Resources/fonts" "$APP_DIR/Contents/Resources/legal"
 cp target/release/mtd-subtitle-app "$APP_DIR/Contents/MacOS/MTDSubtitleApp"
 chmod +x "$APP_DIR/Contents/MacOS/MTDSubtitleApp"
 cp "$FONT_FILE" "$APP_DIR/Contents/Resources/fonts/"
-cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" "$APP_DIR/Contents/Resources/legal/"
+cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" "$FONT_LICENSE_FILE" "$APP_DIR/Contents/Resources/legal/"
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,6 +58,13 @@ if [ -f vendor/ffmpeg/macos/ffmpeg ]; then
 elif [ -f vendor/ffmpeg/ffmpeg ]; then
   cp vendor/ffmpeg/ffmpeg "$APP_DIR/Contents/Resources/ffmpeg"
   chmod +x "$APP_DIR/Contents/Resources/ffmpeg"
+fi
+
+if [ "$CODESIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --sign - "$APP_DIR"
+  echo "Signed with ad-hoc identity. For direct launch on locked-down macOS systems, set MACOS_CODESIGN_IDENTITY to a valid Apple code-signing identity."
+else
+  codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR"
 fi
 
 echo "Build output: $APP_DIR"

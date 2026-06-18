@@ -14,6 +14,8 @@ use anyhow::{Context, Result, anyhow};
 use eframe::egui;
 use reqwest::blocking::{Client, multipart};
 use serde_json::{Value, json};
+#[cfg(target_os = "macos")]
+use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
 const BASE_URL: &str = "https://studio.mosi.cn";
 const DEFAULT_MODEL: &str = "moss-transcribe-diarize";
@@ -921,8 +923,17 @@ fn open_path(path: &Path) -> Result<()> {
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_app_id("cn.mtd.subtitle-app")
+            .with_title("MTD 字幕工作台")
             .with_inner_size([1040.0, 760.0])
             .with_min_inner_size([860.0, 620.0]),
+        #[cfg(target_os = "macos")]
+        event_loop_builder: Some(Box::new(|builder| {
+            builder
+                .with_activation_policy(ActivationPolicy::Regular)
+                .with_activate_ignoring_other_apps(true);
+        })),
+        run_and_return: false,
         ..Default::default()
     };
     eframe::run_native(

@@ -8,12 +8,17 @@ This file summarizes third-party assets and direct Rust dependencies used by MTD
 
 - Type: Font
 - Expected file: `assets/fonts/HarmonyOS_Sans_SC_Regular.ttf`
+- Upstream license file: `assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt`
 - Distribution location:
   - macOS: `MTDSubtitleApp.app/Contents/Resources/fonts/HarmonyOS_Sans_SC_Regular.ttf`
   - Linux: `dist/linux/fonts/HarmonyOS_Sans_SC_Regular.ttf`
   - Windows: `dist/windows/fonts/HarmonyOS_Sans_SC_Regular.ttf`
+- License distribution location:
+  - macOS: `MTDSubtitleApp.app/Contents/Resources/legal/HarmonyOS_Sans_SC_LICENSE.txt`
+  - Linux: `dist/linux/legal/HarmonyOS_Sans_SC_LICENSE.txt`
+  - Windows: `dist/windows/legal/HarmonyOS_Sans_SC_LICENSE.txt`
 - Publisher: Huawei
-- Notes: Public references describe HarmonyOS Sans as proprietary and free for commercial use. Keep the original upstream terms from Huawei with release compliance records.
+- Notes: Public references describe HarmonyOS Sans as proprietary and free for commercial use. Keep the original upstream license from Huawei in every binary distribution.
 
 ### ffmpeg
 

@@ -11,9 +11,10 @@ This product bundles HarmonyOS Sans SC Regular for application UI text rendering
 - Font family: HarmonyOS Sans / HarmonyOS Sans SC
 - Copyright holder / publisher: Huawei, with typeface design attributed publicly to Hanyi Fonts
 - Source: Huawei HarmonyOS Design Resources
+- Bundled files: `assets/fonts/HarmonyOS_Sans_SC_Regular.ttf` and `assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt`
 - Publicly documented status: HarmonyOS Sans is described as a proprietary font that is available for free commercial use from Huawei's developer/design resources.
 
-HarmonyOS Sans is not treated as an open-source font in this project. Do not redistribute modified font files unless the upstream license or written permission allows it. Keep the upstream font license or official terms obtained with the downloaded font package in release compliance records.
+HarmonyOS Sans is not treated as an open-source font in this project. Do not redistribute modified font files unless the upstream license or written permission allows it. Keep the upstream font license obtained with the downloaded font package in every binary distribution.
 
 ## ffmpeg
 

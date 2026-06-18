@@ -13,7 +13,7 @@ cargo run
 - Rust 1.93+
 - ffmpeg，开发时需要能在命令行直接运行 `ffmpeg`，或设置 `FFMPEG_PATH`
 - MOSS API Key
-- HarmonyOS Sans SC Regular 字体文件，用于分发包内置 UI 字体
+- HarmonyOS Sans SC Regular 字体文件和随包许可，用于分发包内置 UI 字体
 
 ffmpeg 查找顺序：
 
@@ -63,6 +63,14 @@ scripts\build-windows.ps1
 - Windows release 使用 GUI subsystem，不会额外弹出控制台窗口
 - Linux 同时生成 `MTDSubtitleApp.desktop`，其中 `Terminal=false`
 
+macOS 直接双击/`open` 启动需要通过 Apple 认可的代码签名身份。构建脚本支持：
+
+```bash
+MACOS_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/build-macos.sh
+```
+
+如果没有设置 `MACOS_CODESIGN_IDENTITY`，脚本会使用 ad-hoc 签名作为开发产物。某些较严格的 macOS 安全策略会拒绝通过 LaunchServices 直接启动 ad-hoc 或未知证书签名的 `.app`；正式分发需要 Developer ID 签名，并按发布渠道完成 notarization。
+
 ### 随包携带 ffmpeg
 
 要做到跨平台随包携带 ffmpeg，不是把一个 ffmpeg 用在所有平台，而是为每个平台放入各自的 ffmpeg 二进制：
@@ -85,13 +93,14 @@ vendor/ffmpeg/windows/ffmpeg.exe
 
 ### 随包携带鸿蒙字体
 
-本项目要求分发包内置 HarmonyOS Sans SC Regular。把官方下载得到的字体文件放到：
+本项目要求分发包内置 HarmonyOS Sans SC Regular。仓库中的字体来自华为官方 HarmonyOS 设计资源页下载的字体包，并保留了随包许可文件：
 
 ```text
 assets/fonts/HarmonyOS_Sans_SC_Regular.ttf
+assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt
 ```
 
-然后运行平台构建脚本。脚本会在字体缺失时直接失败，避免误发没有字体或声明不完整的包。
+运行平台构建脚本时，脚本会在字体或许可缺失时直接失败，避免误发没有字体或声明不完整的包。
 
 字体会被复制到：
 
@@ -108,6 +117,7 @@ assets/fonts/HarmonyOS_Sans_SC_Regular.ttf
 ```text
 NOTICE.md
 THIRD_PARTY_NOTICES.md
+HarmonyOS_Sans_SC_LICENSE.txt
 ```
 
 这里记录了 HarmonyOS Sans、ffmpeg 和直接 Rust 依赖的声明。正式公开发布前，还应基于 `Cargo.lock` 生成完整的传递依赖 license 清单，并保留 ffmpeg 的版本、构建参数和授权文本。
