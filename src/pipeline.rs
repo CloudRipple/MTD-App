@@ -117,6 +117,7 @@ pub(crate) fn run_job(
     state.progress = 100.0;
     state.usage = usage;
     state.preview = preview;
+    state.segments = segments;
     state.output_dir = Some(job_dir);
     state.input_video_path = Some(input_copy);
     state.srt_path = Some(srt_path);

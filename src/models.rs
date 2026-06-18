@@ -8,6 +8,12 @@ pub(crate) struct Segment {
     pub(crate) text: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PreviewMode {
+    Raw,
+    Rendered,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct JobSnapshot {
     pub(crate) status: String,
@@ -16,6 +22,7 @@ pub(crate) struct JobSnapshot {
     pub(crate) file_id: String,
     pub(crate) usage: String,
     pub(crate) preview: String,
+    pub(crate) segments: Vec<Segment>,
     pub(crate) output_dir: Option<PathBuf>,
     pub(crate) input_video_path: Option<PathBuf>,
     pub(crate) srt_path: Option<PathBuf>,
@@ -33,6 +40,7 @@ impl Default for JobSnapshot {
             file_id: "-".to_owned(),
             usage: "-".to_owned(),
             preview: "生成后在这里预览 SRT。".to_owned(),
+            segments: Vec::new(),
             output_dir: None,
             input_video_path: None,
             srt_path: None,

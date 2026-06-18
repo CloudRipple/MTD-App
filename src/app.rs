@@ -8,8 +8,12 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    config::DEFAULT_MODEL, media::burn_subtitles, models::JobSnapshot, pipeline::run_job,
-    platform::default_output_dir, theme::CANVAS,
+    config::DEFAULT_MODEL,
+    media::burn_subtitles,
+    models::{JobSnapshot, PreviewMode},
+    pipeline::run_job,
+    platform::default_output_dir,
+    theme::CANVAS,
 };
 
 pub(crate) struct MtdApp {
@@ -20,6 +24,7 @@ pub(crate) struct MtdApp {
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
     pub(crate) model_picker_open: bool,
+    pub(crate) preview_mode: PreviewMode,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
     pub(crate) burning: bool,
@@ -35,6 +40,7 @@ impl Default for MtdApp {
             max_tokens: 48_000,
             include_speaker: true,
             model_picker_open: false,
+            preview_mode: PreviewMode::Rendered,
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
             burning: false,

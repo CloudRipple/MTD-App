@@ -4,7 +4,7 @@ use crate::{
     app::MtdApp,
     config::MODELS,
     job::update_job,
-    models::JobSnapshot,
+    models::{JobSnapshot, PreviewMode, Segment},
     platform::open_path,
     theme::{
         ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
@@ -360,7 +360,7 @@ impl MtdApp {
         });
     }
 
-    pub(crate) fn render_preview(&self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+    pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         preview_frame().show(ui, |ui| {
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), 28.0),
@@ -380,24 +380,18 @@ impl MtdApp {
                         {
                             ui.ctx().copy_text(snapshot.preview.clone());
                         }
+                        ui.add_space(8.0);
+                        preview_mode_switch(ui, &mut self.preview_mode);
                     });
                 },
             );
             ui.add_space(6.0);
 
             if has_subtitle_preview(&snapshot.preview) {
-                egui::ScrollArea::vertical()
-                    .max_height(280.0)
-                    .show(ui, |ui| {
-                        let mut preview = snapshot.preview.clone();
-                        ui.add(
-                            egui::TextEdit::multiline(&mut preview)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(12)
-                                .interactive(false),
-                        );
-                    });
+                match self.preview_mode {
+                    PreviewMode::Raw => raw_preview(ui, &snapshot.preview),
+                    PreviewMode::Rendered => rendered_preview(ui, &snapshot.segments),
+                }
             } else {
                 empty_preview(ui);
             }
@@ -817,6 +811,183 @@ fn output_chip(ui: &mut egui::Ui, label: &str) {
                     .color(MUTED),
             );
         });
+}
+
+fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
+    let size = egui::vec2(88.0, 26.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if response.clicked() {
+        if let Some(pos) = response.interact_pointer_pos() {
+            *mode = if pos.x < rect.center().x {
+                PreviewMode::Raw
+            } else {
+                PreviewMode::Rendered
+            };
+        }
+    }
+
+    let radius = egui::CornerRadius::same(13);
+    ui.painter().rect(
+        rect,
+        radius,
+        egui::Color32::from_rgb(239, 245, 247),
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    let selected_rect = match mode {
+        PreviewMode::Raw => {
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.center().x, rect.max.y))
+        }
+        PreviewMode::Rendered => {
+            egui::Rect::from_min_max(egui::pos2(rect.center().x, rect.min.y), rect.max)
+        }
+    }
+    .shrink(2.0);
+    ui.painter().rect(
+        selected_rect,
+        egui::CornerRadius::same(11),
+        ACCENT_SOFT,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(190, 226, 221)),
+        egui::StrokeKind::Outside,
+    );
+
+    let raw_color = if *mode == PreviewMode::Raw {
+        ACCENT_DARK
+    } else {
+        MUTED
+    };
+    let rendered_color = if *mode == PreviewMode::Rendered {
+        ACCENT_DARK
+    } else {
+        MUTED
+    };
+    ui.painter().text(
+        egui::pos2(rect.left() + rect.width() * 0.25, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        "Raw",
+        egui::FontId::proportional(11.0),
+        raw_color,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + rect.width() * 0.75, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        "渲染",
+        egui::FontId::proportional(11.0),
+        rendered_color,
+    );
+}
+
+fn raw_preview(ui: &mut egui::Ui, preview: &str) {
+    egui::ScrollArea::vertical()
+        .max_height(280.0)
+        .show(ui, |ui| {
+            let mut preview = preview.to_owned();
+            ui.add(
+                egui::TextEdit::multiline(&mut preview)
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(12)
+                    .interactive(false),
+            );
+        });
+}
+
+fn rendered_preview(ui: &mut egui::Ui, segments: &[Segment]) {
+    if segments.is_empty() {
+        empty_structured_preview(ui);
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .max_height(280.0)
+        .show(ui, |ui| {
+            for (index, segment) in segments.iter().enumerate() {
+                segment_row(ui, index + 1, segment);
+                if index + 1 < segments.len() {
+                    ui.add_space(7.0);
+                }
+            }
+        });
+}
+
+fn segment_row(ui: &mut egui::Ui, index: usize, segment: &Segment) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(226, 233, 236),
+        ))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width((ui.available_width() - 24.0).max(0.0));
+            ui.horizontal_top(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{index:02}"))
+                        .monospace()
+                        .size(12.0)
+                        .strong()
+                        .color(FAINT),
+                );
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} - {}",
+                                display_time(segment.start),
+                                display_time(segment.end)
+                            ))
+                            .monospace()
+                            .size(12.0)
+                            .color(MUTED),
+                        );
+                        if !segment.speaker.is_empty() {
+                            soft_badge(ui, &segment.speaker);
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
+                });
+            });
+        });
+}
+
+fn empty_structured_preview(ui: &mut egui::Ui) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(226, 233, 236),
+        ))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.set_min_height(112.0);
+            ui.vertical_centered(|ui| {
+                ui.add_space(22.0);
+                ui.label(
+                    egui::RichText::new("没有可渲染的结构化字幕")
+                        .size(16.0)
+                        .strong()
+                        .color(INK),
+                );
+                ui.label(
+                    egui::RichText::new("Raw 内容仍可查看；新生成的字幕会自动解析成分段结构。")
+                        .size(13.0)
+                        .color(MUTED),
+                );
+            });
+        });
+}
+
+fn display_time(seconds: f64) -> String {
+    let millis = (seconds.max(0.0) * 1000.0).round() as u64;
+    let minutes = millis / 60_000;
+    let secs = (millis % 60_000) / 1000;
+    let ms = millis % 1000;
+    format!("{minutes:02}:{secs:02}.{ms:03}")
 }
 
 fn has_subtitle_preview(preview: &str) -> bool {
