@@ -43,7 +43,7 @@ impl MtdApp {
                 ui.label(egui::RichText::new("任务").strong().size(16.0).color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.render_start_button(ui);
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
                     self.render_settings_menu(ui);
                 });
             });
@@ -120,40 +120,123 @@ impl MtdApp {
     }
 
     fn render_settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("转写设置", |ui| {
-            ui.set_min_width(360.0);
-            field_label(ui, "MOSS API Key");
-            ui.add_sized(
-                [ui.available_width(), 34.0],
-                egui::TextEdit::singleline(&mut self.api_key)
-                    .password(true)
-                    .hint_text("Bearer key 不需要包含 Bearer"),
-            );
+        let response = ui.add(
+            egui::Button::new(
+                egui::RichText::new("转写设置")
+                    .size(13.0)
+                    .strong()
+                    .color(ACCENT_DARK),
+            )
+            .min_size(egui::vec2(96.0, 32.0))
+            .fill(ACCENT_SOFT)
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(190, 226, 221),
+            ))
+            .corner_radius(8.0),
+        );
 
-            ui.add_space(8.0);
-            ui.menu_button(
-                format!("模型：{}", compact_model_name(&self.model)),
-                |ui| {
-                    ui.set_min_width(320.0);
-                    for model in MODELS {
-                        ui.selectable_value(&mut self.model, model.to_owned(), model);
-                    }
-                },
-            );
+        egui::Popup::from_toggle_button_response(&response)
+            .width(420.0)
+            .gap(8.0)
+            .frame(settings_popup_frame())
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                ui.set_min_width(420.0);
+                self.render_settings_panel(ui);
+            });
+    }
 
-            ui.add_space(8.0);
+    fn render_settings_panel(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                field_label(ui, "最大 token");
-                ui.add(
-                    egui::DragValue::new(&mut self.max_tokens)
-                        .range(1_000..=96_000)
-                        .speed(1000),
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new("转写设置")
+                            .size(16.0)
+                            .strong()
+                            .color(INK),
+                    );
+                    ui.label(
+                        egui::RichText::new("连接 MOSS 并控制字幕输出方式")
+                            .size(12.0)
+                            .color(FAINT),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    soft_badge(
+                        ui,
+                        if self.api_key.trim().is_empty() {
+                            "未配置"
+                        } else {
+                            "可开始"
+                        },
+                    );
+                });
+            });
+
+            ui.add_space(12.0);
+            setting_block(ui, |ui| {
+                field_label(ui, "MOSS API Key");
+                ui.add_sized(
+                    [ui.available_width(), 36.0],
+                    egui::TextEdit::singleline(&mut self.api_key)
+                        .password(true)
+                        .hint_text("Bearer key 不需要包含 Bearer"),
                 );
             });
 
-            ui.add_space(4.0);
-            ui.checkbox(&mut self.include_speaker, "保留说话人");
-            ui.checkbox(&mut self.burn_in, "烧录到视频");
+            ui.add_space(10.0);
+            let model_response = setting_row_button(
+                ui,
+                "模型",
+                compact_model_name(&self.model),
+                "选择用于异步转写的模型版本",
+            );
+            egui::Popup::from_toggle_button_response(&model_response)
+                .width(336.0)
+                .gap(6.0)
+                .frame(settings_popup_frame())
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_min_width(336.0);
+                    field_label(ui, "模型版本");
+                    ui.add_space(6.0);
+                    for model in MODELS {
+                        if model_option(ui, model, self.model == model).clicked() {
+                            self.model = model.to_owned();
+                            ui.close();
+                        }
+                    }
+                });
+
+            ui.add_space(10.0);
+            setting_block(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        field_label(ui, "最大 token");
+                        ui.label(
+                            egui::RichText::new("控制单次转写结果的最大长度")
+                                .size(12.0)
+                                .color(FAINT),
+                        );
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.max_tokens)
+                                .range(1_000..=96_000)
+                                .speed(1000),
+                        );
+                    });
+                });
+            });
+
+            ui.add_space(10.0);
+            setting_block(ui, |ui| {
+                ui.checkbox(&mut self.include_speaker, "保留说话人");
+                ui.add_space(2.0);
+                ui.checkbox(&mut self.burn_in, "烧录到视频");
+            });
         });
     }
 
@@ -319,6 +402,117 @@ fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool) {
             ui.set_min_width((ui.available_width() - 104.0).max(160.0));
             ui.label(egui::RichText::new(text).color(color));
         });
+}
+
+fn settings_popup_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(253, 254, 254))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(204, 216, 222),
+        ))
+        .corner_radius(12.0)
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 10],
+            blur: 22,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(36),
+        })
+        .inner_margin(egui::Margin::symmetric(14, 14))
+}
+
+fn setting_block(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(9.0)
+        .inner_margin(egui::Margin::symmetric(12, 10))
+        .show(ui, add_contents);
+}
+
+fn setting_row_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    description: &str,
+) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 58.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let fill = if response.hovered() {
+        ACCENT_SOFT
+    } else {
+        egui::Color32::from_rgb(247, 250, 251)
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(9),
+        fill,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    let left = rect.left() + 12.0;
+    let center_y = rect.center().y;
+    ui.painter().text(
+        egui::pos2(left, center_y - 9.0),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(13.0),
+        MUTED,
+    );
+    ui.painter().text(
+        egui::pos2(left, center_y + 10.0),
+        egui::Align2::LEFT_CENTER,
+        description,
+        egui::FontId::proportional(12.0),
+        FAINT,
+    );
+    ui.painter().text(
+        egui::pos2(rect.right() - 34.0, center_y),
+        egui::Align2::RIGHT_CENTER,
+        value,
+        egui::FontId::proportional(13.0),
+        INK,
+    );
+    ui.painter().text(
+        egui::pos2(rect.right() - 12.0, center_y),
+        egui::Align2::RIGHT_CENTER,
+        "›",
+        egui::FontId::proportional(18.0),
+        MUTED,
+    );
+    response
+}
+
+fn model_option(ui: &mut egui::Ui, model: &str, selected: bool) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 38.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let fill = if selected {
+        ACCENT_SOFT
+    } else if response.hovered() {
+        egui::Color32::from_rgb(247, 250, 251)
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(8), fill);
+    ui.painter().text(
+        egui::pos2(rect.left() + 12.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        model,
+        egui::FontId::proportional(13.0),
+        if selected { ACCENT_DARK } else { INK },
+    );
+    if selected {
+        ui.painter().text(
+            egui::pos2(rect.right() - 12.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            "已选",
+            egui::FontId::proportional(12.0),
+            ACCENT_DARK,
+        );
+    }
+    response
 }
 
 fn soft_badge(ui: &mut egui::Ui, label: &str) {
