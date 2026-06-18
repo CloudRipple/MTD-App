@@ -919,7 +919,7 @@ fn rendered_preview(ui: &mut egui::Ui, segments: &[Segment]) {
             for (index, segment) in segments.iter().enumerate() {
                 segment_row(ui, index + 1, segment);
                 if index + 1 < segments.len() {
-                    ui.add_space(7.0);
+                    ui.add_space(6.0);
                 }
             }
         });
@@ -933,38 +933,62 @@ fn segment_row(ui: &mut egui::Ui, index: usize, segment: &Segment) {
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(12, 10))
+        .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             ui.set_width((ui.available_width() - 24.0).max(0.0));
+            ui.set_min_height(50.0);
             ui.horizontal_top(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("{index:02}"))
-                        .monospace()
-                        .size(12.0)
-                        .strong()
-                        .color(FAINT),
-                );
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} - {}",
-                                display_time(segment.start),
-                                display_time(segment.end)
-                            ))
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.add_sized(
+                    [30.0, 24.0],
+                    egui::Label::new(
+                        egui::RichText::new(format!("{index:02}"))
                             .monospace()
                             .size(12.0)
-                            .color(MUTED),
-                        );
-                        if !segment.speaker.is_empty() {
-                            soft_badge(ui, &segment.speaker);
-                        }
-                    });
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
-                });
+                            .strong()
+                            .color(FAINT),
+                    ),
+                );
+                ui.add_sized(
+                    [146.0, 24.0],
+                    egui::Label::new(
+                        egui::RichText::new(format!(
+                            "{} - {}",
+                            display_time(segment.start),
+                            display_time(segment.end)
+                        ))
+                        .monospace()
+                        .size(12.0)
+                        .color(MUTED),
+                    ),
+                );
+                if !segment.speaker.is_empty() {
+                    compact_speaker_badge(ui, &segment.speaker);
+                } else {
+                    ui.add_sized([48.0, 24.0], egui::Label::new(""));
+                }
+                ui.add_space(6.0);
+                ui.add(
+                    egui::Label::new(egui::RichText::new(&segment.text).size(14.0).color(INK))
+                        .wrap(),
+                );
             });
+        });
+}
+
+fn compact_speaker_badge(ui: &mut egui::Ui, label: &str) {
+    egui::Frame::NONE
+        .fill(ACCENT_SOFT)
+        .corner_radius(999.0)
+        .inner_margin(egui::Margin::symmetric(9, 4))
+        .show(ui, |ui| {
+            ui.set_min_width(40.0);
+            ui.label(
+                egui::RichText::new(label)
+                    .color(ACCENT_DARK)
+                    .strong()
+                    .size(12.0),
+            );
         });
 }
 
