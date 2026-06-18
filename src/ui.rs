@@ -174,22 +174,22 @@ impl MtdApp {
                 compact_model_name(&self.model),
                 "选择用于异步转写的模型版本",
             );
-            egui::Popup::from_toggle_button_response(&model_response)
-                .width(336.0)
-                .gap(6.0)
-                .frame(settings_popup_frame())
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show(|ui| {
-                    ui.set_min_width(336.0);
+            if model_response.clicked() {
+                self.model_picker_open = !self.model_picker_open;
+            }
+            if self.model_picker_open {
+                ui.add_space(8.0);
+                setting_block(ui, |ui| {
                     field_label(ui, "模型版本");
                     ui.add_space(6.0);
                     for model in MODELS {
                         if model_option(ui, model, self.model == model).clicked() {
                             self.model = model.to_owned();
-                            ui.close();
+                            self.model_picker_open = false;
                         }
                     }
                 });
+            }
 
             ui.add_space(10.0);
             setting_block(ui, |ui| {
