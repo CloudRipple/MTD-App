@@ -18,6 +18,15 @@ cp target/release/mtd-subtitle-app dist/linux/MTDSubtitleApp
 chmod +x dist/linux/MTDSubtitleApp
 cp "$FONT_FILE" dist/linux/fonts/
 cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" dist/linux/legal/
+cat > dist/linux/MTDSubtitleApp.desktop <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=MTD Subtitle App
+Name[zh_CN]=MTD 字幕工作台
+Exec=MTDSubtitleApp
+Terminal=false
+Categories=AudioVideo;Utility;
+DESKTOP
 if [ -f vendor/ffmpeg/linux/ffmpeg ]; then
   cp vendor/ffmpeg/linux/ffmpeg dist/linux/ffmpeg
   chmod +x dist/linux/ffmpeg

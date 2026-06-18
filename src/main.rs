@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use std::{
     env, fs,
     io::Write,
@@ -99,24 +101,30 @@ impl eframe::App for MtdApp {
         }
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(242, 244, 245)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(egui::Color32::from_rgb(244, 246, 247))
+                    .inner_margin(18.0),
+            )
             .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
-                ui.add_space(8.0);
+                ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
+                ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.heading(egui::RichText::new("视频字幕工作台").size(30.0));
+                        ui.heading(
+                            egui::RichText::new("视频字幕工作台")
+                                .size(30.0)
+                                .color(egui::Color32::from_rgb(28, 38, 46)),
+                        );
                         ui.label(
-                            egui::RichText::new(
-                                "本地分离音频，调用 MOSS-Transcribe-Diarize 生成字幕",
-                            )
-                            .color(egui::Color32::from_rgb(92, 104, 114)),
+                            egui::RichText::new("本地分离音频，调用 MOSS 转写并生成字幕文件")
+                                .color(egui::Color32::from_rgb(92, 104, 114)),
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                         ui.label(
-                            egui::RichText::new("Rust 原生跨平台应用")
+                            egui::RichText::new("桌面端")
                                 .color(egui::Color32::from_rgb(36, 131, 77))
                                 .strong(),
                         );
@@ -153,7 +161,7 @@ impl MtdApp {
             .corner_radius(8.0)
             .inner_margin(16.0)
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("输入").strong().size(16.0));
+                ui.label(egui::RichText::new("视频与转写设置").strong().size(16.0));
                 ui.add_space(6.0);
 
                 ui.horizontal(|ui| {
@@ -162,7 +170,7 @@ impl MtdApp {
                         .as_ref()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "尚未选择视频".to_owned());
-                    ui.label(text);
+                    ui.label(egui::RichText::new(text).color(egui::Color32::from_rgb(56, 69, 79)));
                     if ui.button("选择视频").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Video", &["mp4", "mov", "mkv", "webm", "m4v", "avi"])
@@ -175,7 +183,10 @@ impl MtdApp {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(self.output_dir.display().to_string());
+                    ui.label(
+                        egui::RichText::new(self.output_dir.display().to_string())
+                            .color(egui::Color32::from_rgb(56, 69, 79)),
+                    );
                     if ui.button("选择输出目录").clicked() {
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             self.output_dir = path;
@@ -345,6 +356,26 @@ impl MtdApp {
             }
         });
     }
+}
+
+fn install_app_style(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+    style.spacing.button_padding = egui::vec2(14.0, 8.0);
+    style.spacing.interact_size = egui::vec2(44.0, 36.0);
+    style.visuals.override_text_color = Some(egui::Color32::from_rgb(34, 45, 54));
+    style.visuals.panel_fill = egui::Color32::from_rgb(244, 246, 247);
+    style.visuals.window_fill = egui::Color32::from_rgb(251, 252, 252);
+    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(248, 250, 250);
+    style.visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(211, 219, 224));
+    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(237, 243, 240);
+    style.visuals.widgets.hovered.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(73, 145, 100));
+    style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(221, 237, 228);
+    style.visuals.selection.bg_fill = egui::Color32::from_rgb(36, 131, 77);
+    style.visuals.hyperlink_color = egui::Color32::from_rgb(36, 131, 77);
+    ctx.set_style(style);
 }
 
 fn detail(ui: &mut egui::Ui, label: &str, value: &str) {
@@ -761,7 +792,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 }
 
 fn install_app_fonts(ctx: &egui::Context) {
-    let Some(font_path) = find_harmonyos_font() else {
+    let Some((font_name, font_path)) = find_ui_font() else {
         return;
     };
     let Ok(font_bytes) = fs::read(&font_path) else {
@@ -770,15 +801,26 @@ fn install_app_fonts(ctx: &egui::Context) {
 
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
-        "HarmonyOS Sans SC".to_owned(),
+        font_name.clone(),
         egui::FontData::from_owned(font_bytes).into(),
     );
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
         .or_default()
-        .insert(0, "HarmonyOS Sans SC".to_owned());
+        .insert(0, font_name.clone());
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, font_name);
     ctx.set_fonts(fonts);
+}
+
+fn find_ui_font() -> Option<(String, PathBuf)> {
+    find_harmonyos_font()
+        .map(|path| ("HarmonyOS Sans SC".to_owned(), path))
+        .or_else(|| find_development_cjk_font().map(|path| ("CJK UI Fallback".to_owned(), path)))
 }
 
 fn find_harmonyos_font() -> Option<PathBuf> {
@@ -813,6 +855,17 @@ fn find_harmonyos_font() -> Option<PathBuf> {
         candidates.push(current_dir.join("fonts").join(HARMONYOS_FONT_REGULAR));
     }
     candidates.into_iter().find(|candidate| candidate.exists())
+}
+
+fn find_development_cjk_font() -> Option<PathBuf> {
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ];
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.exists())
 }
 
 fn path_arg(path: &Path) -> String {
@@ -873,6 +926,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             install_app_fonts(&cc.egui_ctx);
+            install_app_style(&cc.egui_ctx);
             Ok(Box::new(MtdApp::default()))
         }),
     )

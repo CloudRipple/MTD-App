@@ -57,6 +57,12 @@ scripts\build-windows.ps1
 - `dist/linux/MTDSubtitleApp`
 - `dist/windows/MTDSubtitleApp.exe`
 
+这些平台脚本生成的产物都面向直接打开应用窗口：
+
+- macOS 使用 `.app` bundle
+- Windows release 使用 GUI subsystem，不会额外弹出控制台窗口
+- Linux 同时生成 `MTDSubtitleApp.desktop`，其中 `Terminal=false`
+
 ### 随包携带 ffmpeg
 
 要做到跨平台随包携带 ffmpeg，不是把一个 ffmpeg 用在所有平台，而是为每个平台放入各自的 ffmpeg 二进制：
