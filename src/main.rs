@@ -123,7 +123,7 @@ impl eframe::App for MtdApp {
 
                 render_app_header(ui);
 
-                ui.add_space(12.0);
+                ui.add_space(10.0);
 
                 ui.horizontal_top(|ui| {
                     let available = ui.available_width();
@@ -140,7 +140,7 @@ impl eframe::App for MtdApp {
                     );
                 });
 
-                ui.add_space(14.0);
+                ui.add_space(12.0);
                 self.render_preview(ui, &snapshot);
             });
 
@@ -177,7 +177,7 @@ impl MtdApp {
                 );
             });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
             let can_start =
                 !self.running && self.video_path.is_some() && !self.api_key.trim().is_empty();
             let button_text = if self.running {
@@ -192,24 +192,26 @@ impl MtdApp {
                     FAINT
                 },
             ))
-            .min_size(egui::vec2(ui.available_width(), 40.0))
+            .min_size(egui::vec2(148.0, 34.0))
             .fill(if can_start {
                 ACCENT
             } else {
                 egui::Color32::from_rgb(236, 241, 243)
             });
-            if ui.add_enabled(can_start, button).clicked() {
-                self.start_job();
-            }
 
-            if !can_start && !self.running {
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new("选择视频并填写 API Key 后即可开始。")
-                        .size(13.0)
-                        .color(FAINT),
-                );
-            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(can_start, button).clicked() {
+                    self.start_job();
+                }
+
+                if !can_start && !self.running {
+                    ui.label(
+                        egui::RichText::new("选择视频并填写 API Key 后即可开始。")
+                            .size(13.0)
+                            .color(FAINT),
+                    );
+                }
+            });
         });
     }
 
@@ -385,9 +387,9 @@ impl MtdApp {
     }
 
     fn render_preview(&self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-        panel_frame().show(ui, |ui| {
+        preview_frame().show(ui, |ui| {
             ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), 32.0),
+                egui::vec2(ui.available_width(), 28.0),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.label(
@@ -407,7 +409,7 @@ impl MtdApp {
                     });
                 },
             );
-            ui.add_space(8.0);
+            ui.add_space(6.0);
 
             if has_subtitle_preview(&snapshot.preview) {
                 egui::ScrollArea::vertical()
@@ -481,20 +483,29 @@ fn panel_frame() -> egui::Frame {
         .inner_margin(egui::Margin::symmetric(18, 14))
 }
 
+fn preview_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(SURFACE)
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(10.0)
+        .inner_margin(egui::Margin::symmetric(14, 12))
+}
+
 fn render_app_header(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         #[cfg(target_os = "macos")]
-        ui.add_space(72.0);
+        ui.add_space(60.0);
 
         ui.vertical(|ui| {
             ui.heading(
                 egui::RichText::new("视频字幕工作台")
-                    .size(32.0)
+                    .size(26.0)
                     .strong()
                     .color(INK),
             );
             ui.label(
                 egui::RichText::new("本地分离音频，调用 MOSS 转写，生成可编辑字幕文件")
+                    .size(14.0)
                     .color(MUTED),
             );
         });
@@ -621,14 +632,14 @@ fn empty_preview(ui: &mut egui::Ui) {
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(18, 14))
+        .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
-            ui.set_min_height(128.0);
+            ui.set_min_height(112.0);
             ui.vertical_centered(|ui| {
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 ui.label(
                     egui::RichText::new("等待生成字幕")
-                        .size(18.0)
+                        .size(17.0)
                         .strong()
                         .color(INK),
                 );
@@ -638,7 +649,7 @@ fn empty_preview(ui: &mut egui::Ui) {
                     )
                     .color(MUTED),
                 );
-                ui.add_space(12.0);
+                ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     ui.add_space((ui.available_width() - 320.0).max(0.0) / 2.0);
                     output_chip(ui, "SRT");
