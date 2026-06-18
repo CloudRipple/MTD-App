@@ -468,38 +468,14 @@ fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) {
                 .show(ui, |ui| {
                     ui.set_min_height(30.0);
                     ui.set_max_height(30.0);
-                    ui.horizontal_centered(|ui| {
-                        key_prefix(ui);
-                        ui.add_space(6.0);
-                        ui.add_sized(
-                            [ui.available_width(), 24.0],
-                            egui::TextEdit::singleline(api_key)
-                                .password(true)
-                                .frame(false)
-                                .hint_text("粘贴 API Key，不需要包含 Bearer"),
-                        );
-                    });
+                    ui.add_sized(
+                        [ui.available_width(), 24.0],
+                        egui::TextEdit::singleline(api_key)
+                            .password(true)
+                            .frame(false)
+                            .hint_text("粘贴 API Key，不需要包含 Bearer"),
+                    );
                 });
-        });
-}
-
-fn key_prefix(ui: &mut egui::Ui) {
-    egui::Frame::NONE
-        .fill(ACCENT_SOFT)
-        .stroke(egui::Stroke::new(
-            1.0,
-            egui::Color32::from_rgb(190, 226, 221),
-        ))
-        .corner_radius(6.0)
-        .inner_margin(egui::Margin::symmetric(7, 4))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("KEY")
-                    .monospace()
-                    .size(11.0)
-                    .strong()
-                    .color(ACCENT_DARK),
-            );
         });
 }
 
