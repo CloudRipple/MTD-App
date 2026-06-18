@@ -176,15 +176,7 @@ impl MtdApp {
             });
 
             ui.add_space(12.0);
-            setting_block(ui, |ui| {
-                field_label(ui, "MOSS API Key");
-                ui.add_sized(
-                    [ui.available_width(), 36.0],
-                    egui::TextEdit::singleline(&mut self.api_key)
-                        .password(true)
-                        .hint_text("Bearer key 不需要包含 Bearer"),
-                );
-            });
+            api_key_field(ui, &mut self.api_key);
 
             ui.add_space(10.0);
             let model_response = setting_row_button(
@@ -428,6 +420,105 @@ fn setting_block(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
         .corner_radius(9.0)
         .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, add_contents);
+}
+
+fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(246, 250, 250))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(10.0)
+        .inner_margin(egui::Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new("MOSS API Key")
+                            .size(13.0)
+                            .strong()
+                            .color(MUTED),
+                    );
+                    ui.label(
+                        egui::RichText::new("仅保存在当前运行内存中，用于上传音频和查询任务")
+                            .size(12.0)
+                            .color(FAINT),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    tiny_status_chip(
+                        ui,
+                        if api_key.trim().is_empty() {
+                            "必填"
+                        } else {
+                            "已填写"
+                        },
+                        !api_key.trim().is_empty(),
+                    );
+                });
+            });
+
+            ui.add_space(9.0);
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgb(252, 254, 254))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgb(208, 221, 226),
+                ))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(9, 7))
+                .show(ui, |ui| {
+                    ui.set_min_height(30.0);
+                    ui.set_max_height(30.0);
+                    ui.horizontal_centered(|ui| {
+                        key_prefix(ui);
+                        ui.add_space(6.0);
+                        ui.add_sized(
+                            [ui.available_width(), 24.0],
+                            egui::TextEdit::singleline(api_key)
+                                .password(true)
+                                .frame(false)
+                                .hint_text("粘贴 API Key，不需要包含 Bearer"),
+                        );
+                    });
+                });
+        });
+}
+
+fn key_prefix(ui: &mut egui::Ui) {
+    egui::Frame::NONE
+        .fill(ACCENT_SOFT)
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(190, 226, 221),
+        ))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(7, 4))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("KEY")
+                    .monospace()
+                    .size(11.0)
+                    .strong()
+                    .color(ACCENT_DARK),
+            );
+        });
+}
+
+fn tiny_status_chip(ui: &mut egui::Ui, label: &str, ready: bool) {
+    let (fill, text) = if ready {
+        (ACCENT_SOFT, ACCENT_DARK)
+    } else {
+        (
+            egui::Color32::from_rgb(240, 244, 246),
+            egui::Color32::from_rgb(116, 130, 141),
+        )
+    };
+    egui::Frame::NONE
+        .fill(fill)
+        .corner_radius(999.0)
+        .inner_margin(egui::Margin::symmetric(9, 4))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(label).size(12.0).strong().color(text));
+        });
 }
 
 fn setting_row_button(
