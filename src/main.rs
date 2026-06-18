@@ -5,6 +5,7 @@ mod app;
 mod config;
 mod job;
 mod media;
+mod media_types;
 mod models;
 mod pipeline;
 mod platform;

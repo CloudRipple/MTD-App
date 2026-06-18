@@ -12,14 +12,15 @@ use serde_json::Value;
 use crate::{
     api::{create_asr_task, poll_task, upload_audio},
     job::update_job,
-    media::extract_audio,
+    media::{extract_audio, has_video_stream},
+    media_types::is_direct_audio_path,
     models::JobSnapshot,
     subtitles::{normalize_segments, write_srt, write_vtt},
 };
 
 pub(crate) fn run_job(
     job: &Arc<Mutex<JobSnapshot>>,
-    video_path: PathBuf,
+    media_path: PathBuf,
     output_root: PathBuf,
     api_key: String,
     model: String,
@@ -31,28 +32,40 @@ pub(crate) fn run_job(
         .with_context(|| format!("无法创建输出目录：{}", job_dir.display()))?;
 
     let input_copy = job_dir.join(safe_filename(
-        video_path
+        media_path
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("video.mp4"),
+            .unwrap_or("media"),
     ));
-    fs::copy(&video_path, &input_copy).with_context(|| "无法复制视频到输出目录")?;
+    fs::copy(&media_path, &input_copy).with_context(|| "无法复制媒体到输出目录")?;
+
+    let input_has_video = if is_direct_audio_path(&input_copy) {
+        false
+    } else {
+        has_video_stream(&input_copy)?
+    };
 
     let audio_path = job_dir.join("audio.m4a");
     let srt_path = job_dir.join("subtitles.srt");
     let vtt_path = job_dir.join("subtitles.vtt");
     let json_path = job_dir.join("transcript.json");
     let text_path = job_dir.join("transcript.txt");
-    let subtitled_path = job_dir.join("subtitled.mp4");
+    let subtitled_path = input_has_video.then(|| job_dir.join("subtitled.mp4"));
 
-    update_job(job, "正在分离音频", 12.0, None);
-    extract_audio(&input_copy, &audio_path)?;
+    let upload_audio_path = if input_has_video {
+        update_job(job, "正在分离音频", 12.0, None);
+        extract_audio(&input_copy, &audio_path)?;
+        audio_path.clone()
+    } else {
+        update_job(job, "正在准备音频", 12.0, None);
+        input_copy.clone()
+    };
 
     update_job(job, "正在上传音频到 MOSS", 28.0, None);
     let client = Client::builder()
         .timeout(Duration::from_secs(180))
         .build()?;
-    let upload = upload_audio(&client, &api_key, &audio_path)?;
+    let upload = upload_audio(&client, &api_key, &upload_audio_path)?;
     let file_id = upload
         .get("file_id")
         .and_then(Value::as_str)
@@ -119,9 +132,9 @@ pub(crate) fn run_job(
     state.preview = preview;
     state.segments = segments;
     state.output_dir = Some(job_dir);
-    state.input_video_path = Some(input_copy);
+    state.input_video_path = input_has_video.then_some(input_copy);
     state.srt_path = Some(srt_path);
-    state.subtitled_path = Some(subtitled_path);
+    state.subtitled_path = subtitled_path;
     state.done = true;
     Ok(())
 }
@@ -137,7 +150,7 @@ fn safe_filename(name: &str) -> String {
     }
     let trimmed = output.trim_matches(['.', '_']);
     if trimmed.is_empty() {
-        "video.mp4".to_owned()
+        "media".to_owned()
     } else {
         trimmed.to_owned()
     }

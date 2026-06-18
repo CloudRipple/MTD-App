@@ -54,7 +54,7 @@ impl eframe::App for MtdApp {
         if snapshot.done {
             self.running = false;
         }
-        if self.burning && !snapshot.status.contains("正在烧录") {
+        if self.burning && !snapshot.status.contains("正在添加字幕") {
             self.burning = false;
         }
 
@@ -153,7 +153,7 @@ impl MtdApp {
         self.burning = true;
         {
             let mut state = job.lock().expect("job lock");
-            state.status = "正在烧录到视频".to_owned();
+            state.status = "正在添加字幕到视频".to_owned();
             state.error = None;
         }
 
@@ -162,14 +162,14 @@ impl MtdApp {
             let mut state = job.lock().expect("job lock");
             match result {
                 Ok(()) => {
-                    state.status = "烧录完成".to_owned();
+                    state.status = "添加完成".to_owned();
                     state.output_dir = subtitled_path.parent().map(|path| path.to_path_buf());
                     state.subtitled_path = Some(subtitled_path);
                     state.done = true;
                     state.error = None;
                 }
                 Err(error) => {
-                    state.status = "烧录失败".to_owned();
+                    state.status = "添加失败".to_owned();
                     state.done = true;
                     state.error = Some(error.to_string());
                 }

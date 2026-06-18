@@ -1,6 +1,6 @@
 # MTD Subtitle App
 
-Rust 原生跨平台视频字幕工作台：选择视频，自动分离音频，调用 MOSS-Transcribe-Diarize 异步转写，生成 SRT/VTT 字幕，可选将字幕烧录回视频。
+Rust 原生跨平台字幕工作台：选择音频或视频，调用 MOSS-Transcribe-Diarize 异步转写，生成 SRT/VTT 字幕；视频输入可选将字幕添加回视频。
 
 ## 运行源码
 
@@ -101,7 +101,7 @@ vendor/ffmpeg/windows/ffmpeg.exe
 
 应用启动后会优先找随包 ffmpeg；找不到时再找 `FFMPEG_PATH` 或系统 PATH。
 
-默认构建参数使用 LGPL-compatible 配置：`--pkg-config-flags=--static --disable-gpl --disable-nonfree --enable-libass`。`libass` 是必须项，因为“烧录到视频”使用 FFmpeg 的 `subtitles` filter。
+默认构建参数使用 LGPL-compatible 配置：`--pkg-config-flags=--static --disable-gpl --disable-nonfree --enable-libass`。`libass` 是必须项，因为“添加字幕到视频”使用 FFmpeg 的 `subtitles` filter。
 
 macOS 打包脚本还会收集 Homebrew/本地前缀中的 FFmpeg 运行时 dylib 依赖，复制到 `.app/Contents/Resources/lib`，改写为 `@rpath` 路径并重新签名，避免用户机器上必须安装 Homebrew。
 
@@ -148,16 +148,21 @@ HarmonyOS_Sans_SC_LICENSE.txt
 
 应用会在你选择的输出目录下创建 `MTD字幕-<timestamp>/`。
 
-- `audio.m4a`：从视频分离出的音频
+支持的视频和音频输入：
+
+- 视频：MP4、MOV、MKV、WebM、M4V、AVI
+- 纯音频：WAV、MP3、AAC、FLAC、OGG、MPEG、M4A、MP4 音频流、WebM 音频流、PCM
+
+- `audio.m4a`：从视频分离出的音频，纯音频输入不会额外生成此文件
 - `transcript.json`：模型返回的分段结果
 - `subtitles.srt`：SRT 字幕
 - `subtitles.vtt`：WebVTT 字幕
 - `transcript.txt`：完整文本
-- `subtitled.mp4`：勾选烧录字幕时生成
+- `subtitled.mp4`：视频输入选择“添加字幕到视频”后生成，纯音频输入不支持此操作
 
 ## 接口流程
 
-1. 执行 `ffmpeg` 抽取音频。
+1. 视频输入先执行 `ffmpeg` 抽取音频，纯音频输入直接上传。
 2. `POST https://studio.mosi.cn/api/v1/files/upload` 上传音频。
 3. `POST https://studio.mosi.cn/api/v1/asr/tasks` 创建 `moss-transcribe-diarize` 任务。
 4. 轮询 `GET https://studio.mosi.cn/api/v1/asr/tasks/:task_id`，成功后生成字幕文件。

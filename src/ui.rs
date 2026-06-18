@@ -4,6 +4,7 @@ use crate::{
     app::MtdApp,
     config::MODELS,
     job::update_job,
+    media_types::{AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, supported_extensions},
     models::{JobSnapshot, PreviewMode, Segment},
     platform::open_path,
     theme::{
@@ -17,13 +18,13 @@ impl MtdApp {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                 ui.heading(
-                    egui::RichText::new("视频字幕工作台")
+                    egui::RichText::new("字幕工作台")
                         .size(24.0)
                         .strong()
                         .color(INK),
                 );
                 ui.label(
-                    egui::RichText::new("本地分离音频，调用 MOSS 转写，生成可编辑字幕文件")
+                    egui::RichText::new("支持音频转写，也可为视频生成字幕文件")
                         .size(13.0)
                         .color(MUTED),
                 );
@@ -60,7 +61,7 @@ impl MtdApp {
     }
 
     fn render_file_inputs(&mut self, ui: &mut egui::Ui) {
-        field_label(ui, "输入视频");
+        field_label(ui, "输入音频或视频");
         ui.horizontal(|ui| {
             let text = self
                 .video_path
@@ -68,18 +69,21 @@ impl MtdApp {
                 .and_then(|p| p.file_name())
                 .and_then(|name| name.to_str())
                 .map(str::to_owned)
-                .unwrap_or_else(|| "尚未选择视频".to_owned());
+                .unwrap_or_else(|| "尚未选择媒体文件".to_owned());
             path_pill(ui, &text, self.video_path.is_some());
             if ui
                 .add_sized([92.0, 32.0], egui::Button::new("选择"))
                 .clicked()
             {
+                let media_extensions = supported_extensions();
                 if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Video", &["mp4", "mov", "mkv", "webm", "m4v", "avi"])
+                    .add_filter("媒体文件", &media_extensions)
+                    .add_filter("视频", VIDEO_EXTENSIONS)
+                    .add_filter("音频", AUDIO_EXTENSIONS)
                     .pick_file()
                 {
                     self.video_path = Some(path);
-                    update_job(&self.job, "已选择视频，可以开始生成字幕", 0.0, None);
+                    update_job(&self.job, "已选择媒体，可以开始生成字幕", 0.0, None);
                 }
             }
         });
@@ -267,16 +271,16 @@ impl MtdApp {
     fn render_burn_button(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         let can_burn = self.can_burn(snapshot);
         let button_text = if self.burning {
-            "烧录中"
+            "添加中"
         } else {
-            "烧录到视频"
+            "添加字幕到视频"
         };
         let button = egui::Button::new(
             egui::RichText::new(button_text)
                 .strong()
                 .color(if can_burn { ACCENT_DARK } else { FAINT }),
         )
-        .min_size(egui::vec2(118.0, 32.0))
+        .min_size(egui::vec2(126.0, 32.0))
         .fill(if can_burn {
             ACCENT_SOFT
         } else {
@@ -743,9 +747,9 @@ fn stage_message(progress: f32, done: bool) -> &'static str {
     } else if progress >= 28.0 {
         "阶段：上传音频"
     } else if progress >= 12.0 {
-        "阶段：分离音频"
+        "阶段：准备音频"
     } else {
-        "阶段：等待视频处理"
+        "阶段：等待媒体处理"
     }
 }
 
@@ -790,7 +794,7 @@ fn empty_preview(ui: &mut egui::Ui) {
                 );
                 ui.label(
                     egui::RichText::new(
-                        "选择视频并填写 API Key 后，会在这里显示可复制的 SRT 预览。",
+                        "选择音频或视频并填写 API Key 后，会在这里显示可复制的 SRT 预览。",
                     )
                     .color(MUTED),
                 );

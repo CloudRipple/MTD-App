@@ -34,6 +34,33 @@ pub(crate) fn burn_subtitles(video_path: &Path, srt_path: &Path, output_path: &P
     ])
 }
 
+pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
+    let ffmpeg =
+        find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
+    let output = Command::new(ffmpeg)
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(path_arg(media_path))
+        .output()
+        .context("读取媒体信息失败")?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let has_stream_metadata = stderr.lines().any(|line| line.contains("Stream #"));
+    if !has_stream_metadata {
+        let message = stderr.trim();
+        return Err(anyhow!(
+            "无法识别媒体流信息{}",
+            if message.is_empty() {
+                String::new()
+            } else {
+                format!("：{message}")
+            }
+        ));
+    }
+    Ok(stderr
+        .lines()
+        .any(|line| line.contains("Stream #") && line.contains("Video:")))
+}
+
 fn run_ffmpeg(args: &[&str]) -> Result<()> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;

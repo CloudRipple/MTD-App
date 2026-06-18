@@ -34,7 +34,7 @@ pub(crate) struct JobSnapshot {
 impl Default for JobSnapshot {
     fn default() -> Self {
         Self {
-            status: "等待选择视频".to_owned(),
+            status: "等待选择媒体".to_owned(),
             progress: 0.0,
             task_id: "-".to_owned(),
             file_id: "-".to_owned(),
