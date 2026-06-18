@@ -358,15 +358,27 @@ impl MtdApp {
                     .color(status_color),
             );
             ui.add_space(8.0);
-            ui.add(
-                egui::ProgressBar::new(snapshot.progress / 100.0)
-                    .fill(if snapshot.error.is_some() {
-                        DANGER
-                    } else {
-                        ACCENT
-                    })
-                    .show_percentage(),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::ProgressBar::new(snapshot.progress / 100.0)
+                        .fill(if snapshot.error.is_some() {
+                            DANGER
+                        } else {
+                            ACCENT
+                        })
+                        .desired_width((ui.available_width() - 56.0).max(120.0)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", snapshot.progress))
+                        .monospace()
+                        .strong()
+                        .color(if snapshot.error.is_some() {
+                            DANGER
+                        } else {
+                            ACCENT_DARK
+                        }),
+                );
+            });
 
             ui.add_space(14.0);
             render_pipeline(ui, snapshot.progress);
@@ -401,24 +413,28 @@ impl MtdApp {
 
     fn render_preview(&self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         panel_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("字幕预览")
-                        .strong()
-                        .size(16.0)
-                        .color(INK),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let has_preview = has_subtitle_preview(&snapshot.preview);
-                    if ui
-                        .add_enabled(has_preview, egui::Button::new("复制字幕"))
-                        .clicked()
-                    {
-                        ui.ctx().copy_text(snapshot.preview.clone());
-                    }
-                });
-            });
-            ui.add_space(10.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 32.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("字幕预览")
+                            .strong()
+                            .size(16.0)
+                            .color(INK),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let has_preview = has_subtitle_preview(&snapshot.preview);
+                        if ui
+                            .add_enabled(has_preview, egui::Button::new("复制字幕"))
+                            .clicked()
+                        {
+                            ui.ctx().copy_text(snapshot.preview.clone());
+                        }
+                    });
+                },
+            );
+            ui.add_space(8.0);
 
             if has_subtitle_preview(&snapshot.preview) {
                 egui::ScrollArea::vertical()
@@ -489,7 +505,7 @@ fn panel_frame() -> egui::Frame {
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0, BORDER))
         .corner_radius(10.0)
-        .inner_margin(egui::Margin::symmetric(18, 16))
+        .inner_margin(egui::Margin::symmetric(18, 14))
 }
 
 fn field_label(ui: &mut egui::Ui, text: &str) {
@@ -576,11 +592,11 @@ fn empty_preview(ui: &mut egui::Ui) {
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(18, 18))
+        .inner_margin(egui::Margin::symmetric(18, 14))
         .show(ui, |ui| {
-            ui.set_min_height(180.0);
+            ui.set_min_height(128.0);
             ui.vertical_centered(|ui| {
-                ui.add_space(24.0);
+                ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("等待生成字幕")
                         .size(18.0)
