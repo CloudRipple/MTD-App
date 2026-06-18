@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::{
     api::{create_asr_task, poll_task, upload_audio},
     job::update_job,
-    media::{burn_subtitles, extract_audio},
+    media::extract_audio,
     models::JobSnapshot,
     subtitles::{normalize_segments, write_srt, write_vtt},
 };
@@ -25,7 +25,6 @@ pub(crate) fn run_job(
     model: String,
     max_tokens: u32,
     include_speaker: bool,
-    burn_in: bool,
 ) -> Result<()> {
     let job_dir = output_root.join(format!("MTD字幕-{}", unix_timestamp()));
     fs::create_dir_all(&job_dir)
@@ -107,11 +106,6 @@ pub(crate) fn run_job(
     write_srt(&srt_path, &segments, include_speaker)?;
     write_vtt(&vtt_path, &segments, include_speaker)?;
 
-    if burn_in {
-        update_job(job, "正在把字幕烧录回视频", 90.0, None);
-        burn_subtitles(&input_copy, &srt_path, &subtitled_path)?;
-    }
-
     let usage = result
         .get("usage")
         .and_then(|usage| usage.get("total_tokens"))
@@ -124,6 +118,9 @@ pub(crate) fn run_job(
     state.usage = usage;
     state.preview = preview;
     state.output_dir = Some(job_dir);
+    state.input_video_path = Some(input_copy);
+    state.srt_path = Some(srt_path);
+    state.subtitled_path = Some(subtitled_path);
     state.done = true;
     Ok(())
 }

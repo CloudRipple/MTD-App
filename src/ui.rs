@@ -14,11 +14,8 @@ use crate::{
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            #[cfg(target_os = "macos")]
-            ui.add_space(60.0);
-
-            ui.vertical(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                 ui.heading(
                     egui::RichText::new("视频字幕工作台")
                         .size(24.0)
@@ -31,9 +28,6 @@ impl MtdApp {
                         .color(MUTED),
                 );
             });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                soft_badge(ui, "本地音频处理");
-            });
         });
     }
 
@@ -42,8 +36,6 @@ impl MtdApp {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("任务").strong().size(16.0).color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.render_start_button(ui);
-                    ui.add_space(10.0);
                     self.render_settings_menu(ui);
                 });
             });
@@ -51,7 +43,7 @@ impl MtdApp {
             ui.add_space(10.0);
             ui.horizontal_top(|ui| {
                 let available = ui.available_width();
-                let input_width = (available * 0.52).clamp(420.0, 620.0);
+                let input_width = (available * 0.46).clamp(380.0, 540.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(input_width, 0.0),
                     egui::Layout::top_down(egui::Align::Min),
@@ -64,9 +56,6 @@ impl MtdApp {
                     |ui| self.render_status_cluster(ui, snapshot),
                 );
             });
-
-            ui.add_space(12.0);
-            self.render_pipeline_horizontal(ui, snapshot.progress);
         });
     }
 
@@ -226,8 +215,6 @@ impl MtdApp {
             ui.add_space(10.0);
             setting_block(ui, |ui| {
                 ui.checkbox(&mut self.include_speaker, "保留说话人");
-                ui.add_space(2.0);
-                ui.checkbox(&mut self.burn_in, "烧录到视频");
             });
         });
     }
@@ -251,14 +238,56 @@ impl MtdApp {
             ACCENT
         } else {
             egui::Color32::from_rgb(236, 241, 243)
-        });
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            if can_start {
+                ACCENT
+            } else {
+                egui::Color32::from_rgb(226, 233, 236)
+            },
+        ))
+        .corner_radius(8.0);
 
         if ui.add_enabled(can_start, button).clicked() {
             self.start_job();
         }
     }
 
-    fn render_status_cluster(&self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+    fn render_burn_button(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        let can_burn = self.can_burn(snapshot);
+        let button_text = if self.burning {
+            "烧录中"
+        } else {
+            "烧录到视频"
+        };
+        let button = egui::Button::new(
+            egui::RichText::new(button_text)
+                .strong()
+                .color(if can_burn { ACCENT_DARK } else { FAINT }),
+        )
+        .min_size(egui::vec2(118.0, 32.0))
+        .fill(if can_burn {
+            ACCENT_SOFT
+        } else {
+            egui::Color32::from_rgb(236, 241, 243)
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            if can_burn {
+                egui::Color32::from_rgb(190, 226, 221)
+            } else {
+                egui::Color32::from_rgb(226, 233, 236)
+            },
+        ))
+        .corner_radius(8.0);
+
+        if ui.add_enabled(can_burn, button).clicked() {
+            self.burn_video();
+        }
+    }
+
+    fn render_status_cluster(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         ui.horizontal(|ui| {
             let label = if snapshot.error.is_some() {
                 "需要处理"
@@ -292,9 +321,18 @@ impl MtdApp {
                 .strong()
                 .color(status_color),
         );
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(stage_message(snapshot.progress, snapshot.done))
+                .size(13.0)
+                .color(FAINT),
+        );
 
         ui.add_space(8.0);
         progress_track(ui, snapshot.progress, snapshot.error.is_some());
+
+        ui.add_space(12.0);
+        self.render_action_row(ui, snapshot);
 
         ui.add_space(10.0);
         detail_grid(ui, snapshot);
@@ -314,18 +352,11 @@ impl MtdApp {
         }
     }
 
-    fn render_pipeline_horizontal(&self, ui: &mut egui::Ui, progress: f32) {
-        let steps = [
-            ("分离音频", 12.0),
-            ("上传音频", 28.0),
-            ("转写处理", 58.0),
-            ("生成字幕", 82.0),
-        ];
-        ui.columns(4, |columns| {
-            for (index, column) in columns.iter_mut().enumerate() {
-                let (label, threshold) = steps[index];
-                stage_chip(column, index + 1, label, progress >= threshold);
-            }
+    fn render_action_row(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        ui.horizontal(|ui| {
+            self.render_start_button(ui);
+            ui.add_space(8.0);
+            self.render_burn_button(ui, snapshot);
         });
     }
 
@@ -391,7 +422,7 @@ fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool) {
         .corner_radius(7.0)
         .inner_margin(egui::Margin::symmetric(10, 7))
         .show(ui, |ui| {
-            ui.set_min_width((ui.available_width() - 104.0).max(160.0));
+            ui.set_min_width((ui.available_width() - 124.0).max(160.0));
             ui.label(egui::RichText::new(text).color(color));
         });
 }
@@ -652,78 +683,66 @@ fn progress_track(ui: &mut egui::Ui, progress: f32, is_error: bool) {
 }
 
 fn detail_grid(ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-    egui::Grid::new("job_details")
-        .num_columns(3)
-        .spacing(egui::vec2(14.0, 4.0))
-        .show(ui, |ui| {
-            detail_cell(ui, "任务 ID", &snapshot.task_id);
-            detail_cell(ui, "文件 ID", &snapshot.file_id);
-            detail_cell(ui, "Token", &snapshot.usage);
-            ui.end_row();
-        });
-}
-
-fn detail_cell(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.vertical(|ui| {
-        ui.label(egui::RichText::new(label).size(12.0).color(FAINT));
-        ui.label(
-            egui::RichText::new(value)
-                .monospace()
-                .size(12.0)
-                .color(if value == "-" { FAINT } else { MUTED }),
-        );
+    let spacing = 8.0;
+    let card_width = ((ui.available_width() - spacing * 2.0) / 3.0).max(96.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = spacing;
+        detail_cell(ui, "任务 ID", &snapshot.task_id, card_width);
+        detail_cell(ui, "文件 ID", &snapshot.file_id, card_width);
+        detail_cell(ui, "Token", &snapshot.usage, card_width);
     });
 }
 
-fn stage_chip(ui: &mut egui::Ui, number: usize, label: &str, active: bool) {
-    let fill = if active {
-        ACCENT_SOFT
-    } else {
-        egui::Color32::from_rgb(247, 250, 251)
-    };
-    let stroke = if active {
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(184, 222, 216))
-    } else {
-        egui::Stroke::new(1.0, BORDER)
-    };
+fn detail_cell(ui: &mut egui::Ui, label: &str, value: &str, width: f32) {
+    let display_value = compact_detail_value(value);
     egui::Frame::NONE
-        .fill(fill)
-        .stroke(stroke)
-        .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(226, 233, 236),
+        ))
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(9, 6))
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                number_dot(ui, number, active);
+            ui.set_width((width - 18.0).max(72.0));
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(label).size(12.0).color(FAINT));
                 ui.label(
-                    egui::RichText::new(label)
-                        .size(13.0)
-                        .strong()
-                        .color(if active { INK } else { FAINT }),
+                    egui::RichText::new(display_value)
+                        .monospace()
+                        .size(12.0)
+                        .color(if value == "-" { FAINT } else { MUTED }),
                 );
             });
         });
 }
 
-fn number_dot(ui: &mut egui::Ui, number: usize, active: bool) {
-    let fill = if active {
-        ACCENT
+fn compact_detail_value(value: &str) -> String {
+    let value = value.trim();
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() > 18 {
+        let start: String = chars.iter().take(8).collect();
+        let end: String = chars.iter().skip(chars.len().saturating_sub(6)).collect();
+        format!("{start}...{end}")
     } else {
-        egui::Color32::from_rgb(232, 238, 241)
-    };
-    let text = if active { egui::Color32::WHITE } else { FAINT };
-    egui::Frame::NONE
-        .fill(fill)
-        .corner_radius(999.0)
-        .inner_margin(egui::Margin::symmetric(8, 4))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(number.to_string())
-                    .size(12.0)
-                    .strong()
-                    .color(text),
-            );
-        });
+        value.to_owned()
+    }
+}
+
+fn stage_message(progress: f32, done: bool) -> &'static str {
+    if done {
+        "阶段：生成字幕完成"
+    } else if progress >= 82.0 {
+        "阶段：生成字幕"
+    } else if progress >= 58.0 {
+        "阶段：转写处理"
+    } else if progress >= 28.0 {
+        "阶段：上传音频"
+    } else if progress >= 12.0 {
+        "阶段：分离音频"
+    } else {
+        "阶段：等待视频处理"
+    }
 }
 
 fn error_box(ui: &mut egui::Ui, error: &str) {

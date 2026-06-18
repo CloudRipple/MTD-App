@@ -16,7 +16,7 @@ pub(crate) fn panel_frame() -> egui::Frame {
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0, BORDER))
         .corner_radius(10.0)
-        .inner_margin(egui::Margin::symmetric(16, 14))
+        .inner_margin(egui::Margin::same(16))
 }
 
 pub(crate) fn preview_frame() -> egui::Frame {
@@ -24,7 +24,7 @@ pub(crate) fn preview_frame() -> egui::Frame {
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0, BORDER))
         .corner_radius(10.0)
-        .inner_margin(egui::Margin::symmetric(14, 12))
+        .inner_margin(egui::Margin::same(14))
 }
 
 pub(crate) fn install_app_style(ctx: &egui::Context) {

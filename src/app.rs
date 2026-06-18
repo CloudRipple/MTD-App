@@ -8,8 +8,8 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    config::DEFAULT_MODEL, models::JobSnapshot, pipeline::run_job, platform::default_output_dir,
-    theme::CANVAS,
+    config::DEFAULT_MODEL, media::burn_subtitles, models::JobSnapshot, pipeline::run_job,
+    platform::default_output_dir, theme::CANVAS,
 };
 
 pub(crate) struct MtdApp {
@@ -19,9 +19,9 @@ pub(crate) struct MtdApp {
     pub(crate) model: String,
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
-    pub(crate) burn_in: bool,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
+    pub(crate) burning: bool,
 }
 
 impl Default for MtdApp {
@@ -33,9 +33,9 @@ impl Default for MtdApp {
             model: DEFAULT_MODEL.to_owned(),
             max_tokens: 48_000,
             include_speaker: true,
-            burn_in: false,
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
+            burning: false,
         }
     }
 }
@@ -45,6 +45,9 @@ impl eframe::App for MtdApp {
         let snapshot = self.job.lock().expect("job lock").clone();
         if snapshot.done {
             self.running = false;
+        }
+        if self.burning && !snapshot.status.contains("正在烧录") {
+            self.burning = false;
         }
 
         egui::CentralPanel::default()
@@ -65,6 +68,9 @@ impl eframe::App for MtdApp {
         if self.running {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
+        if self.burning {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
     }
 }
 
@@ -78,7 +84,6 @@ impl MtdApp {
         let model = self.model.clone();
         let max_tokens = self.max_tokens.clamp(1_000, 96_000);
         let include_speaker = self.include_speaker;
-        let burn_in = self.burn_in;
         let job = Arc::clone(&self.job);
 
         self.running = true;
@@ -101,7 +106,6 @@ impl MtdApp {
                 model,
                 max_tokens,
                 include_speaker,
-                burn_in,
             );
             if let Err(error) = result {
                 let mut state = job.lock().expect("job lock");
@@ -115,5 +119,53 @@ impl MtdApp {
 
     pub(crate) fn can_start(&self) -> bool {
         !self.running && self.video_path.is_some() && !self.api_key.trim().is_empty()
+    }
+
+    pub(crate) fn can_burn(&self, snapshot: &JobSnapshot) -> bool {
+        !self.running
+            && !self.burning
+            && snapshot.done
+            && snapshot.error.is_none()
+            && snapshot.input_video_path.is_some()
+            && snapshot.srt_path.is_some()
+            && snapshot.subtitled_path.is_some()
+    }
+
+    pub(crate) fn burn_video(&mut self) {
+        let snapshot = self.job.lock().expect("job lock").clone();
+        let (Some(input_video_path), Some(srt_path), Some(subtitled_path)) = (
+            snapshot.input_video_path,
+            snapshot.srt_path,
+            snapshot.subtitled_path,
+        ) else {
+            return;
+        };
+        let job = Arc::clone(&self.job);
+
+        self.burning = true;
+        {
+            let mut state = job.lock().expect("job lock");
+            state.status = "正在烧录到视频".to_owned();
+            state.error = None;
+        }
+
+        thread::spawn(move || {
+            let result = burn_subtitles(&input_video_path, &srt_path, &subtitled_path);
+            let mut state = job.lock().expect("job lock");
+            match result {
+                Ok(()) => {
+                    state.status = "烧录完成".to_owned();
+                    state.output_dir = subtitled_path.parent().map(|path| path.to_path_buf());
+                    state.subtitled_path = Some(subtitled_path);
+                    state.done = true;
+                    state.error = None;
+                }
+                Err(error) => {
+                    state.status = "烧录失败".to_owned();
+                    state.done = true;
+                    state.error = Some(error.to_string());
+                }
+            }
+        });
     }
 }

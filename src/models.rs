@@ -17,6 +17,9 @@ pub(crate) struct JobSnapshot {
     pub(crate) usage: String,
     pub(crate) preview: String,
     pub(crate) output_dir: Option<PathBuf>,
+    pub(crate) input_video_path: Option<PathBuf>,
+    pub(crate) srt_path: Option<PathBuf>,
+    pub(crate) subtitled_path: Option<PathBuf>,
     pub(crate) done: bool,
     pub(crate) error: Option<String>,
 }
@@ -31,6 +34,9 @@ impl Default for JobSnapshot {
             usage: "-".to_owned(),
             preview: "生成后在这里预览 SRT。".to_owned(),
             output_dir: None,
+            input_video_path: None,
+            srt_path: None,
+            subtitled_path: None,
             done: false,
             error: None,
         }
