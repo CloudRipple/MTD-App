@@ -411,9 +411,7 @@ impl MtdApp {
             if has_subtitle_preview(&snapshot.preview) {
                 match self.preview_mode {
                     PreviewMode::Raw => raw_preview(ui, &snapshot.preview),
-                    PreviewMode::Rendered => {
-                        rendered_preview(ui, &snapshot.segments, &self.speaker_names)
-                    }
+                    PreviewMode::Rendered => self.render_rendered_preview(ui, &snapshot.segments),
                 }
             } else {
                 empty_preview(ui);
@@ -483,6 +481,28 @@ impl MtdApp {
                         self.apply_speaker_names();
                     }
                 });
+            });
+    }
+
+    fn render_rendered_preview(&mut self, ui: &mut egui::Ui, segments: &[Segment]) {
+        if segments.is_empty() {
+            empty_structured_preview(ui);
+            return;
+        }
+
+        egui::ScrollArea::vertical()
+            .max_height(280.0)
+            .show(ui, |ui| {
+                for (index, segment) in segments.iter().enumerate() {
+                    if let Some((speaker, text)) =
+                        segment_row(ui, index + 1, segment, &self.speaker_names)
+                    {
+                        self.update_segment_text(index, speaker, text);
+                    }
+                    if index + 1 < segments.len() {
+                        ui.add_space(6.0);
+                    }
+                }
             });
     }
 }
@@ -994,34 +1014,16 @@ fn raw_preview(ui: &mut egui::Ui, preview: &str) {
         });
 }
 
-fn rendered_preview(
-    ui: &mut egui::Ui,
-    segments: &[Segment],
-    speaker_names: &BTreeMap<String, String>,
-) {
-    if segments.is_empty() {
-        empty_structured_preview(ui);
-        return;
-    }
-
-    egui::ScrollArea::vertical()
-        .max_height(280.0)
-        .show(ui, |ui| {
-            for (index, segment) in segments.iter().enumerate() {
-                segment_row(ui, index + 1, segment, speaker_names);
-                if index + 1 < segments.len() {
-                    ui.add_space(6.0);
-                }
-            }
-        });
-}
-
 fn segment_row(
     ui: &mut egui::Ui,
     index: usize,
     segment: &Segment,
     speaker_names: &BTreeMap<String, String>,
-) {
+) -> Option<(String, String)> {
+    let mut speaker = display_speaker(&segment.speaker, speaker_names);
+    let mut text = segment.text.clone();
+    let mut changed = false;
+
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -1058,19 +1060,13 @@ fn segment_row(
                         .color(MUTED),
                     ),
                 );
-                let speaker = display_speaker(&segment.speaker, speaker_names);
-                if !speaker.is_empty() {
-                    compact_speaker_badge(ui, &speaker);
-                } else {
-                    ui.add_sized([48.0, 24.0], egui::Label::new(""));
-                }
+                changed |= editable_speaker_field(ui, &mut speaker).changed();
                 ui.add_space(6.0);
-                ui.add(
-                    egui::Label::new(egui::RichText::new(&segment.text).size(14.0).color(INK))
-                        .wrap(),
-                );
+                changed |= editable_subtitle_field(ui, &mut text).changed();
             });
         });
+
+    changed.then_some((speaker, text))
 }
 
 fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<String, String>) {
@@ -1092,6 +1088,46 @@ fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<Strin
                 );
             });
         });
+}
+
+fn editable_speaker_field(ui: &mut egui::Ui, speaker: &mut String) -> egui::Response {
+    egui::Frame::NONE
+        .fill(ACCENT_SOFT)
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(190, 226, 221),
+        ))
+        .corner_radius(999.0)
+        .inner_margin(egui::Margin::symmetric(8, 4))
+        .show(ui, |ui| {
+            ui.add_sized(
+                [72.0, 20.0],
+                egui::TextEdit::singleline(speaker)
+                    .frame(false)
+                    .hint_text("说话人"),
+            )
+        })
+        .inner
+}
+
+fn editable_subtitle_field(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(252, 254, 254))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(226, 233, 236),
+        ))
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            ui.add_sized(
+                [ui.available_width(), 22.0],
+                egui::TextEdit::singleline(text)
+                    .frame(false)
+                    .hint_text("字幕内容"),
+            )
+        })
+        .inner
 }
 
 fn compact_speaker_badge(ui: &mut egui::Ui, label: &str) {

@@ -199,14 +199,33 @@ impl MtdApp {
         }
         self.speaker_names.clear();
 
-        if let Ok(preview) = render_srt(&state.segments, state.include_speaker) {
-            state.preview = preview;
-        }
-        if let Some(srt_path) = &state.srt_path {
-            let _ = write_srt(srt_path, &state.segments, state.include_speaker);
-        }
-        if let Some(vtt_path) = &state.vtt_path {
-            let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
-        }
+        sync_subtitle_outputs(&mut state);
+    }
+
+    pub(crate) fn update_segment_text(&mut self, index: usize, speaker: String, text: String) {
+        let mut state = self.job.lock().expect("job lock");
+        let Some(segment) = state.segments.get_mut(index) else {
+            return;
+        };
+
+        segment.speaker = speaker.trim().to_owned();
+        segment.text = text;
+        sync_subtitle_outputs(&mut state);
+    }
+}
+
+fn sync_subtitle_outputs(state: &mut JobSnapshot) {
+    if state.segments.is_empty() {
+        return;
+    }
+
+    if let Ok(preview) = render_srt(&state.segments, state.include_speaker) {
+        state.preview = preview;
+    }
+    if let Some(srt_path) = &state.srt_path {
+        let _ = write_srt(srt_path, &state.segments, state.include_speaker);
+    }
+    if let Some(vtt_path) = &state.vtt_path {
+        let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
     }
 }
