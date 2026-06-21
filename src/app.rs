@@ -28,6 +28,7 @@ pub(crate) struct MtdApp {
     pub(crate) model_picker_open: bool,
     pub(crate) preview_mode: PreviewMode,
     pub(crate) speaker_names: BTreeMap<String, String>,
+    pub(crate) time_edits: BTreeMap<usize, (String, String)>,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
     pub(crate) burning: bool,
@@ -45,6 +46,7 @@ impl Default for MtdApp {
             model_picker_open: false,
             preview_mode: PreviewMode::Rendered,
             speaker_names: BTreeMap::new(),
+            time_edits: BTreeMap::new(),
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
             burning: false,
@@ -100,6 +102,7 @@ impl MtdApp {
 
         self.running = true;
         self.speaker_names.clear();
+        self.time_edits.clear();
         {
             let mut state = job.lock().expect("job lock");
             *state = JobSnapshot {
@@ -202,12 +205,21 @@ impl MtdApp {
         sync_subtitle_outputs(&mut state);
     }
 
-    pub(crate) fn update_segment_text(&mut self, index: usize, speaker: String, text: String) {
+    pub(crate) fn update_segment(
+        &mut self,
+        index: usize,
+        start: f64,
+        end: f64,
+        speaker: String,
+        text: String,
+    ) {
         let mut state = self.job.lock().expect("job lock");
         let Some(segment) = state.segments.get_mut(index) else {
             return;
         };
 
+        segment.start = start.max(0.0);
+        segment.end = end.max(segment.start + 0.001);
         segment.speaker = speaker.trim().to_owned();
         segment.text = text;
         sync_subtitle_outputs(&mut state);

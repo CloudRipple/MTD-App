@@ -490,20 +490,31 @@ impl MtdApp {
             return;
         }
 
+        let speaker_names = self.speaker_names.clone();
+        let mut edits = Vec::new();
         egui::ScrollArea::vertical()
             .max_height(280.0)
             .show(ui, |ui| {
                 for (index, segment) in segments.iter().enumerate() {
-                    if let Some((speaker, text)) =
-                        segment_row(ui, index + 1, segment, &self.speaker_names)
-                    {
-                        self.update_segment_text(index, speaker, text);
+                    if let Some((start, end, speaker, text)) = segment_row(
+                        ui,
+                        index,
+                        index + 1,
+                        segment,
+                        &speaker_names,
+                        &mut self.time_edits,
+                    ) {
+                        edits.push((index, start, end, speaker, text));
                     }
                     if index + 1 < segments.len() {
                         ui.add_space(6.0);
                     }
                 }
             });
+
+        for (index, start, end, speaker, text) in edits {
+            self.update_segment(index, start, end, speaker, text);
+        }
     }
 }
 
@@ -1016,13 +1027,21 @@ fn raw_preview(ui: &mut egui::Ui, preview: &str) {
 
 fn segment_row(
     ui: &mut egui::Ui,
+    segment_index: usize,
     index: usize,
     segment: &Segment,
     speaker_names: &BTreeMap<String, String>,
-) -> Option<(String, String)> {
+    time_edits: &mut BTreeMap<usize, (String, String)>,
+) -> Option<(f64, f64, String, String)> {
     let mut speaker = display_speaker(&segment.speaker, speaker_names);
     let mut text = segment.text.clone();
-    let mut changed = false;
+    let time_draft = time_edits
+        .entry(segment_index)
+        .or_insert_with(|| (display_time(segment.start), display_time(segment.end)));
+    let mut start_text = time_draft.0.clone();
+    let mut end_text = time_draft.1.clone();
+    let mut time_changed = false;
+    let mut content_changed = false;
 
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
@@ -1047,26 +1066,33 @@ fn segment_row(
                             .color(FAINT),
                     ),
                 );
-                ui.add_sized(
-                    [146.0, 24.0],
-                    egui::Label::new(
-                        egui::RichText::new(format!(
-                            "{} - {}",
-                            display_time(segment.start),
-                            display_time(segment.end)
-                        ))
-                        .monospace()
-                        .size(12.0)
-                        .color(MUTED),
-                    ),
-                );
-                changed |= editable_speaker_field(ui, &mut speaker).changed();
+                time_changed |= editable_time_field(ui, &mut start_text).changed();
+                ui.label(egui::RichText::new("-").monospace().size(12.0).color(FAINT));
+                time_changed |= editable_time_field(ui, &mut end_text).changed();
+                content_changed |= editable_speaker_field(ui, &mut speaker).changed();
                 ui.add_space(6.0);
-                changed |= editable_subtitle_field(ui, &mut text).changed();
+                content_changed |= editable_subtitle_field(ui, &mut text).changed();
             });
         });
 
-    changed.then_some((speaker, text))
+    if time_changed {
+        *time_draft = (start_text.clone(), end_text.clone());
+    }
+
+    let parsed_time = parse_edit_time(&start_text).zip(parse_edit_time(&end_text));
+    let valid_time = parsed_time
+        .filter(|(start, end)| *end > *start)
+        .map(|(start, end)| (start, end));
+
+    if let Some((start, end)) = valid_time {
+        if time_changed || content_changed {
+            return Some((start, end, speaker, text));
+        }
+    } else if content_changed {
+        return Some((segment.start, segment.end, speaker, text));
+    }
+
+    None
 }
 
 fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<String, String>) {
@@ -1088,6 +1114,27 @@ fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<Strin
                 );
             });
         });
+}
+
+fn editable_time_field(ui: &mut egui::Ui, value: &mut String) -> egui::Response {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(252, 254, 254))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(226, 233, 236),
+        ))
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(7, 4))
+        .show(ui, |ui| {
+            ui.add_sized(
+                [72.0, 20.0],
+                egui::TextEdit::singleline(value)
+                    .font(egui::TextStyle::Monospace)
+                    .frame(false)
+                    .hint_text("00:00.000"),
+            )
+        })
+        .inner
 }
 
 fn editable_speaker_field(ui: &mut egui::Ui, speaker: &mut String) -> egui::Response {
@@ -1166,6 +1213,27 @@ fn display_speaker(speaker: &str, names: &BTreeMap<String, String>) -> String {
         .to_owned()
 }
 
+fn parse_edit_time(value: &str) -> Option<f64> {
+    let normalized = value.trim().replace(',', ".");
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let parts: Vec<&str> = normalized.split(':').collect();
+    let seconds = match parts.as_slice() {
+        [seconds] => seconds.parse::<f64>().ok()?,
+        [minutes, seconds] => minutes.parse::<f64>().ok()? * 60.0 + seconds.parse::<f64>().ok()?,
+        [hours, minutes, seconds] => {
+            hours.parse::<f64>().ok()? * 3600.0
+                + minutes.parse::<f64>().ok()? * 60.0
+                + seconds.parse::<f64>().ok()?
+        }
+        _ => return None,
+    };
+
+    seconds.is_finite().then_some(seconds.max(0.0))
+}
+
 fn empty_structured_preview(ui: &mut egui::Ui) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
@@ -1212,4 +1280,16 @@ fn compact_model_name(model: &str) -> &str {
         .and_then(|suffix| suffix.strip_prefix('-'))
         .filter(|suffix| !suffix.is_empty())
         .unwrap_or("默认")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_edit_time;
+
+    #[test]
+    fn parses_subtitle_time_editor_values() {
+        assert_eq!(parse_edit_time("00:02.540"), Some(2.54));
+        assert_eq!(parse_edit_time("01:00:02.500"), Some(3602.5));
+        assert_eq!(parse_edit_time("2.5"), Some(2.5));
+    }
 }
