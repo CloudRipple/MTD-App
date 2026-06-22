@@ -15,6 +15,10 @@ use crate::{
     },
 };
 
+const PREVIEW_FRAME_VERTICAL_INSET: f32 = 28.0;
+const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
+const PREVIEW_BORDER_RESERVE: f32 = 2.0;
+
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -379,7 +383,9 @@ impl MtdApp {
     pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         let preview_height = ui.available_height().max(180.0);
         preview_frame().show(ui, |ui| {
-            ui.set_min_height((preview_height - 24.0).max(156.0));
+            ui.set_min_height(
+                (preview_height - PREVIEW_FRAME_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(156.0),
+            );
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), 28.0),
                 egui::Layout::left_to_right(egui::Align::Center),
@@ -409,7 +415,7 @@ impl MtdApp {
                 },
             );
             ui.add_space(6.0);
-            let content_height = ui.available_height().max(112.0);
+            let content_height = (ui.available_height() - PREVIEW_BORDER_RESERVE).max(112.0);
 
             if has_subtitle_preview(&snapshot.preview) {
                 match self.preview_mode {
@@ -903,6 +909,8 @@ fn error_box(ui: &mut egui::Ui, error: &str) {
 }
 
 fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
+    let body_height =
+        (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(88.0);
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -912,9 +920,9 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
-            ui.set_min_height(content_height);
+            ui.set_min_height(body_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(((content_height - 94.0) * 0.5).clamp(8.0, 80.0));
+                ui.add_space(((body_height - 94.0) * 0.5).clamp(8.0, 80.0));
                 ui.label(
                     egui::RichText::new("等待生成字幕")
                         .size(17.0)
@@ -1248,6 +1256,8 @@ fn parse_edit_time(value: &str) -> Option<f64> {
 }
 
 fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
+    let body_height =
+        (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(88.0);
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -1257,9 +1267,9 @@ fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
-            ui.set_min_height(content_height);
+            ui.set_min_height(body_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(((content_height - 66.0) * 0.5).clamp(16.0, 80.0));
+                ui.add_space(((body_height - 66.0) * 0.5).clamp(16.0, 80.0));
                 ui.label(
                     egui::RichText::new("没有可渲染的结构化字幕")
                         .size(16.0)
