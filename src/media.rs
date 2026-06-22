@@ -7,31 +7,27 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 
 pub(crate) fn extract_audio(video_path: &Path, audio_path: &Path) -> Result<()> {
-    run_ffmpeg(&[
-        "-i",
-        path_arg(video_path).as_str(),
-        "-vn",
-        "-map",
-        "0:a:0",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        path_arg(audio_path).as_str(),
-    ])
+    let input = path_arg(video_path);
+    let output = path_arg(audio_path);
+    run_ffmpeg(&ffmpeg_args(&[
+        "-i", &input, "-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "128k", &output,
+    ]))
 }
 
 pub(crate) fn burn_subtitles(video_path: &Path, srt_path: &Path, output_path: &Path) -> Result<()> {
     let subtitle_filter = format!("subtitles='{}'", escape_subtitle_filter_path(srt_path));
-    run_ffmpeg(&[
-        "-i",
-        path_arg(video_path).as_str(),
-        "-vf",
-        subtitle_filter.as_str(),
-        "-c:a",
-        "copy",
-        path_arg(output_path).as_str(),
-    ])
+    let input = path_arg(video_path);
+    let output = path_arg(output_path);
+    let mut errors = Vec::new();
+
+    for (label, args) in burn_subtitle_commands(&input, &subtitle_filter, &output) {
+        match run_ffmpeg(&args) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("{label}: {error}")),
+        }
+    }
+
+    Err(anyhow!("添加字幕到视频失败：{}", errors.join("\n")))
 }
 
 pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
@@ -61,7 +57,89 @@ pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
         .any(|line| line.contains("Stream #") && line.contains("Video:")))
 }
 
-fn run_ffmpeg(args: &[&str]) -> Result<()> {
+fn burn_subtitle_commands(
+    input: &str,
+    subtitle_filter: &str,
+    output: &str,
+) -> Vec<(&'static str, Vec<String>)> {
+    let mut commands = Vec::new();
+    if cfg!(target_os = "macos") {
+        commands.push((
+            "VideoToolbox H.264 高码率编码",
+            subtitle_burn_args(
+                input,
+                subtitle_filter,
+                &["-c:v", "h264_videotoolbox", "-b:v", "32M", "-allow_sw", "1"],
+                output,
+            ),
+        ));
+    }
+
+    commands.push((
+        "libx264 高质量编码",
+        subtitle_burn_args(
+            input,
+            subtitle_filter,
+            &["-c:v", "libx264", "-preset", "slow", "-crf", "16"],
+            output,
+        ),
+    ));
+
+    if !cfg!(target_os = "macos") {
+        commands.push((
+            "VideoToolbox H.264 高码率编码",
+            subtitle_burn_args(
+                input,
+                subtitle_filter,
+                &["-c:v", "h264_videotoolbox", "-b:v", "32M", "-allow_sw", "1"],
+                output,
+            ),
+        ));
+    }
+
+    commands.push((
+        "MPEG-4 最高质量兜底编码",
+        subtitle_burn_args(
+            input,
+            subtitle_filter,
+            &["-c:v", "mpeg4", "-q:v", "1"],
+            output,
+        ),
+    ));
+
+    commands
+}
+
+fn subtitle_burn_args(
+    input: &str,
+    subtitle_filter: &str,
+    encoder_args: &[&str],
+    output: &str,
+) -> Vec<String> {
+    let mut args = ffmpeg_args(&[
+        "-i",
+        input,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        subtitle_filter,
+    ]);
+    args.extend(encoder_args.iter().map(|arg| (*arg).to_owned()));
+    args.extend(ffmpeg_args(&[
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-c:a",
+        "copy",
+        output,
+    ]));
+    args
+}
+
+fn run_ffmpeg(args: &[String]) -> Result<()> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
     let output = Command::new(ffmpeg)
@@ -76,6 +154,10 @@ fn run_ffmpeg(args: &[&str]) -> Result<()> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(anyhow!("ffmpeg 失败：{}", stderr.trim()))
     }
+}
+
+fn ffmpeg_args(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
 fn find_ffmpeg() -> Option<PathBuf> {
@@ -140,4 +222,43 @@ fn escape_subtitle_filter_path(path: &Path) -> String {
         .replace('\\', "/")
         .replace(':', "\\:")
         .replace('\'', "\\'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtitle_burn_commands_prefer_high_quality_video_encoding() {
+        let commands = burn_subtitle_commands("input.mp4", "subtitles='captions.srt'", "out.mp4");
+
+        assert!(commands.len() >= 3);
+
+        let has_libx264 = commands.iter().any(|(_, args)| {
+            has_arg_pair(args, "-c:v", "libx264")
+                && has_arg_pair(args, "-crf", "16")
+                && has_arg_pair(args, "-preset", "slow")
+        });
+        let has_platform_h264 = commands.iter().any(|(_, args)| {
+            has_arg_pair(args, "-c:v", "h264_videotoolbox")
+                && has_arg_pair(args, "-b:v", "32M")
+                && has_arg_pair(args, "-allow_sw", "1")
+        });
+        let has_fallback = commands.iter().any(|(_, args)| {
+            has_arg_pair(args, "-c:v", "mpeg4") && has_arg_pair(args, "-q:v", "1")
+        });
+        let copies_audio = commands
+            .iter()
+            .all(|(_, args)| has_arg_pair(args, "-c:a", "copy"));
+
+        assert!(has_libx264);
+        assert!(has_platform_h264);
+        assert!(has_fallback);
+        assert!(copies_audio);
+    }
+
+    fn has_arg_pair(args: &[String], key: &str, value: &str) -> bool {
+        args.windows(2)
+            .any(|pair| pair[0] == key && pair[1] == value)
+    }
 }

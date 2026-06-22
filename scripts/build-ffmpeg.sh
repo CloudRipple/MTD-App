@@ -81,6 +81,10 @@ CONFIGURE_FLAGS=(
   "--enable-pic"
 )
 
+if [ "$PLATFORM" = "macos" ]; then
+  CONFIGURE_FLAGS+=("--enable-videotoolbox")
+fi
+
 FFMPEG_COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD 2>/dev/null || cat "$SRC_DIR/RELEASE")"
 EXTRA_FLAGS_TEXT="${EXTRA_CONFIGURE_FLAGS[*]-}"
 STAMP_VALUE="commit=$FFMPEG_COMMIT

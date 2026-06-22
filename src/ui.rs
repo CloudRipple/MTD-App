@@ -377,7 +377,9 @@ impl MtdApp {
     }
 
     pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        let preview_height = ui.available_height().max(180.0);
         preview_frame().show(ui, |ui| {
+            ui.set_min_height((preview_height - 24.0).max(156.0));
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), 28.0),
                 egui::Layout::left_to_right(egui::Align::Center),
@@ -407,14 +409,17 @@ impl MtdApp {
                 },
             );
             ui.add_space(6.0);
+            let content_height = ui.available_height().max(112.0);
 
             if has_subtitle_preview(&snapshot.preview) {
                 match self.preview_mode {
-                    PreviewMode::Raw => raw_preview(ui, &snapshot.preview),
-                    PreviewMode::Rendered => self.render_rendered_preview(ui, &snapshot.segments),
+                    PreviewMode::Raw => raw_preview(ui, &snapshot.preview, content_height),
+                    PreviewMode::Rendered => {
+                        self.render_rendered_preview(ui, &snapshot.segments, content_height);
+                    }
                 }
             } else {
-                empty_preview(ui);
+                empty_preview(ui, content_height);
             }
         });
     }
@@ -484,17 +489,23 @@ impl MtdApp {
             });
     }
 
-    fn render_rendered_preview(&mut self, ui: &mut egui::Ui, segments: &[Segment]) {
+    fn render_rendered_preview(
+        &mut self,
+        ui: &mut egui::Ui,
+        segments: &[Segment],
+        content_height: f32,
+    ) {
         if segments.is_empty() {
-            empty_structured_preview(ui);
+            empty_structured_preview(ui, content_height);
             return;
         }
 
         let speaker_names = self.speaker_names.clone();
         let mut edits = Vec::new();
         egui::ScrollArea::vertical()
-            .max_height(280.0)
+            .max_height(content_height)
             .show(ui, |ui| {
+                ui.set_min_height(content_height);
                 for (index, segment) in segments.iter().enumerate() {
                     if let Some((start, end, speaker, text)) = segment_row(
                         ui,
@@ -891,7 +902,7 @@ fn error_box(ui: &mut egui::Ui, error: &str) {
         });
 }
 
-fn empty_preview(ui: &mut egui::Ui) {
+fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -901,9 +912,9 @@ fn empty_preview(ui: &mut egui::Ui) {
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
-            ui.set_min_height(112.0);
+            ui.set_min_height(content_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
+                ui.add_space(((content_height - 94.0) * 0.5).clamp(8.0, 80.0));
                 ui.label(
                     egui::RichText::new("等待生成字幕")
                         .size(17.0)
@@ -1010,16 +1021,18 @@ fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
     );
 }
 
-fn raw_preview(ui: &mut egui::Ui, preview: &str) {
+fn raw_preview(ui: &mut egui::Ui, preview: &str, content_height: f32) {
     egui::ScrollArea::vertical()
-        .max_height(280.0)
+        .max_height(content_height)
         .show(ui, |ui| {
+            ui.set_min_height(content_height);
             let mut preview = preview.to_owned();
+            let rows = ((content_height / 18.0).floor() as usize).max(8);
             ui.add(
                 egui::TextEdit::multiline(&mut preview)
                     .font(egui::TextStyle::Monospace)
                     .desired_width(f32::INFINITY)
-                    .desired_rows(12)
+                    .desired_rows(rows)
                     .interactive(false),
             );
         });
@@ -1234,7 +1247,7 @@ fn parse_edit_time(value: &str) -> Option<f64> {
     seconds.is_finite().then_some(seconds.max(0.0))
 }
 
-fn empty_structured_preview(ui: &mut egui::Ui) {
+fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -1244,9 +1257,9 @@ fn empty_structured_preview(ui: &mut egui::Ui) {
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
-            ui.set_min_height(112.0);
+            ui.set_min_height(content_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(22.0);
+                ui.add_space(((content_height - 66.0) * 0.5).clamp(16.0, 80.0));
                 ui.label(
                     egui::RichText::new("没有可渲染的结构化字幕")
                         .size(16.0)
