@@ -31,18 +31,44 @@ const OUTPUT_CHIP_GAP: f32 = 12.0;
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::drag());
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-        }
-        ui.painter().text(
-            rect.right_top(),
-            egui::Align2::RIGHT_TOP,
-            "字幕工作台",
-            egui::FontId::proportional(22.0),
-            INK,
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 32.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                #[cfg(not(target_os = "macos"))]
+                self.render_file_menu(ui);
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 32.0),
+                    egui::Sense::drag(),
+                );
+                if response.drag_started_by(egui::PointerButton::Primary) {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                ui.painter().text(
+                    rect.right_top(),
+                    egui::Align2::RIGHT_TOP,
+                    "字幕工作台",
+                    egui::FontId::proportional(22.0),
+                    INK,
+                );
+            },
         );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn render_file_menu(&mut self, ui: &mut egui::Ui) {
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("文件", |ui| {
+                if ui.button("打开项目...").clicked() {
+                    ui.close();
+                    self.open_project_dialog();
+                }
+                if ui.button("打开输出目录").clicked() {
+                    ui.close();
+                    let _ = open_path(&self.output_dir);
+                }
+            });
+        });
     }
 
     pub(crate) fn render_workspace(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {

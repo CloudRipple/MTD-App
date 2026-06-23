@@ -15,6 +15,7 @@ use crate::{
     media::{extract_audio, has_video_stream},
     media_types::is_direct_audio_path,
     models::JobSnapshot,
+    project::{PROJECT_FILE_NAME, save_project},
     subtitles::{normalize_segments, render_srt, write_srt, write_vtt},
 };
 
@@ -50,6 +51,7 @@ pub(crate) fn run_job(
     let vtt_path = job_dir.join("subtitles.vtt");
     let json_path = job_dir.join("transcript.json");
     let text_path = job_dir.join("transcript.txt");
+    let project_path = job_dir.join(PROJECT_FILE_NAME);
     let subtitled_path = input_has_video.then(|| job_dir.join("subtitled.mp4"));
 
     let upload_audio_path = if input_has_video {
@@ -125,19 +127,25 @@ pub(crate) fn run_job(
         .map(|value| format!("{value} total"))
         .unwrap_or_else(|| "-".to_owned());
     let preview = render_srt(&segments, include_speaker)?;
-    let mut state = job.lock().expect("job lock");
-    state.status = "完成".to_owned();
-    state.progress = 100.0;
-    state.usage = usage;
-    state.preview = preview;
-    state.segments = segments;
-    state.include_speaker = include_speaker;
-    state.output_dir = Some(job_dir);
-    state.input_video_path = input_has_video.then_some(input_copy);
-    state.srt_path = Some(srt_path);
-    state.vtt_path = Some(vtt_path);
-    state.subtitled_path = subtitled_path;
-    state.done = true;
+    let snapshot = {
+        let mut state = job.lock().expect("job lock");
+        state.status = "完成".to_owned();
+        state.progress = 100.0;
+        state.usage = usage;
+        state.preview = preview;
+        state.segments = segments;
+        state.include_speaker = include_speaker;
+        state.output_dir = Some(job_dir);
+        state.input_media_path = Some(input_copy.clone());
+        state.input_video_path = input_has_video.then_some(input_copy);
+        state.srt_path = Some(srt_path);
+        state.vtt_path = Some(vtt_path);
+        state.project_path = Some(project_path.clone());
+        state.subtitled_path = subtitled_path;
+        state.done = true;
+        state.clone()
+    };
+    save_project(&project_path, &snapshot)?;
     Ok(())
 }
 

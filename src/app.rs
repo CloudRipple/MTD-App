@@ -14,7 +14,9 @@ use crate::{
     fonts::{self, SubtitleFont},
     media::{SubtitleBurnOptions, burn_subtitles},
     models::{JobSnapshot, PreviewMode},
+    native_menu,
     pipeline::run_job,
+    project::{load_project, save_project},
     secret_store::{self, ApiKeyStorage},
     subtitles::{render_srt, write_srt, write_vtt},
     theme::CANVAS,
@@ -117,6 +119,13 @@ impl eframe::App for MtdApp {
         if self.burning && !snapshot.status.contains("正在添加字幕") {
             self.burning = false;
         }
+        native_menu::install_file_menu();
+        if native_menu::take_open_project_request() {
+            self.open_project_dialog();
+        }
+        if ctx.input(|input| input.modifiers.command && input.key_pressed(egui::Key::O)) {
+            self.open_project_dialog();
+        }
 
         egui::CentralPanel::default()
             .frame(
@@ -146,6 +155,45 @@ impl eframe::App for MtdApp {
 }
 
 impl MtdApp {
+    pub(crate) fn open_project_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("打开 MTD 项目")
+            .add_filter("MTD 项目", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        self.load_project_file(path);
+    }
+
+    pub(crate) fn load_project_file(&mut self, path: PathBuf) {
+        match load_project(&path) {
+            Ok(snapshot) => {
+                self.running = false;
+                self.burning = false;
+                self.video_preview.reset();
+                self.speaker_names.clear();
+                self.time_edits.clear();
+                self.video_path = snapshot
+                    .input_media_path
+                    .clone()
+                    .or_else(|| snapshot.input_video_path.clone());
+                if let Some(output_dir) = snapshot.output_dir.clone() {
+                    self.output_dir = output_dir;
+                    self.save_current_settings();
+                }
+                *self.job.lock().expect("job lock") = snapshot;
+            }
+            Err(error) => {
+                let mut state = self.job.lock().expect("job lock");
+                state.status = "打开项目失败".to_owned();
+                state.progress = 100.0;
+                state.done = true;
+                state.error = Some(error.to_string());
+            }
+        }
+    }
+
     pub(crate) fn save_api_key_to_store(&mut self) {
         let api_key = self.api_key.trim();
         if api_key.is_empty() {
@@ -296,6 +344,7 @@ impl MtdApp {
                     state.subtitled_path = Some(subtitled_path);
                     state.done = true;
                     state.error = None;
+                    sync_project_file(&state);
                 }
                 Err(error) => {
                     state.status = "添加失败".to_owned();
@@ -324,6 +373,7 @@ impl MtdApp {
         self.video_preview.invalidate();
 
         sync_subtitle_outputs(&mut state);
+        sync_project_file(&state);
     }
 
     pub(crate) fn update_segment(
@@ -344,6 +394,7 @@ impl MtdApp {
         segment.speaker = speaker.trim().to_owned();
         segment.text = text;
         sync_subtitle_outputs(&mut state);
+        sync_project_file(&state);
         drop(state);
         self.video_preview.invalidate();
     }
@@ -397,5 +448,11 @@ fn sync_subtitle_outputs(state: &mut JobSnapshot) {
     }
     if let Some(vtt_path) = &state.vtt_path {
         let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
+    }
+}
+
+fn sync_project_file(state: &JobSnapshot) {
+    if let Some(project_path) = &state.project_path {
+        let _ = save_project(project_path, state);
     }
 }
