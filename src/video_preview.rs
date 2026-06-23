@@ -2,19 +2,22 @@ use std::{
     fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
+use anyhow::{Context, Result};
 use eframe::egui;
 
 use crate::{
     media::{
-        PreviewFrame, SubtitleBurnOptions, media_duration, stream_subtitle_preview_frames,
-        video_frame_rate,
+        PreviewFrame, SubtitleBurnOptions, find_ffmpeg, media_duration, path_arg,
+        stream_subtitle_preview_frames, video_frame_rate,
     },
     models::Segment,
+    platform::hide_command_window,
 };
 
 const PREVIEW_FRAME_WIDTH: usize = 640;
@@ -66,6 +69,7 @@ pub(crate) struct VideoPreview {
     texture: Option<egui::TextureHandle>,
     texture_frame_index: Option<usize>,
     texture_time: Option<f64>,
+    audio: AudioPreview,
 }
 
 impl Default for VideoPreview {
@@ -83,6 +87,7 @@ impl Default for VideoPreview {
             texture: None,
             texture_frame_index: None,
             texture_time: None,
+            audio: AudioPreview::default(),
         }
     }
 }
@@ -116,6 +121,10 @@ impl VideoPreview {
         self.cache.lock().expect("preview cache lock").error.clone()
     }
 
+    pub(crate) fn last_audio_error(&self) -> Option<String> {
+        self.audio.last_error()
+    }
+
     pub(crate) fn prepare(
         &mut self,
         ctx: &egui::Context,
@@ -141,6 +150,7 @@ impl VideoPreview {
         self.texture = None;
         self.texture_frame_index = None;
         self.texture_time = None;
+        self.audio.stop();
         self.reset_cache();
     }
 
@@ -155,6 +165,7 @@ impl VideoPreview {
         self.texture = None;
         self.texture_frame_index = None;
         self.texture_time = None;
+        self.audio.stop();
         self.reset_cache();
     }
 
@@ -165,18 +176,27 @@ impl VideoPreview {
     }
 
     pub(crate) fn toggle_playing(&mut self) {
-        self.playing = !self.playing;
-        self.last_tick = self.playing.then(Instant::now);
+        if self.playing {
+            self.pause();
+        } else {
+            self.playing = true;
+            self.last_tick = Some(Instant::now());
+            self.start_audio_at_current_time();
+        }
     }
 
     pub(crate) fn pause(&mut self) {
         self.playing = false;
         self.last_tick = None;
+        self.audio.stop();
     }
 
     pub(crate) fn seek(&mut self, time: f64) {
         self.current_time = self.clamp_time(time);
         self.last_tick = self.playing.then(Instant::now);
+        if self.playing {
+            self.start_audio_at_current_time();
+        }
     }
 
     pub(crate) fn update_playback(&mut self, fallback_duration: f64) {
@@ -384,6 +404,134 @@ impl VideoPreview {
         self.duration = metadata.duration;
         self.frame_rate = metadata.frame_rate.unwrap_or(FALLBACK_PREVIEW_FPS);
         self.current_time = self.clamp_time(self.current_time);
+    }
+
+    fn start_audio_at_current_time(&mut self) {
+        let Some(source) = &self.source else {
+            return;
+        };
+        self.audio.start(&source.video_path, self.current_time);
+    }
+}
+
+#[derive(Default)]
+struct AudioPreview {
+    stream: Option<rodio::OutputStream>,
+    playback: Option<AudioPlayback>,
+    error: Option<String>,
+}
+
+impl AudioPreview {
+    fn last_error(&self) -> Option<String> {
+        self.error.clone()
+    }
+
+    fn start(&mut self, video_path: &Path, start_time: f64) {
+        self.stop();
+        self.error = None;
+        if let Err(error) = self.start_inner(video_path, start_time) {
+            self.error = Some(error.to_string());
+        }
+    }
+
+    fn stop(&mut self) {
+        self.playback = None;
+    }
+
+    fn start_inner(&mut self, video_path: &Path, start_time: f64) -> Result<()> {
+        if self.stream.is_none() {
+            let mut stream = rodio::OutputStreamBuilder::open_default_stream()
+                .context("打开音频输出设备失败")?;
+            stream.log_on_drop(false);
+            self.stream = Some(stream);
+        }
+        let stream = self.stream.as_ref().expect("audio stream initialized");
+
+        let ffmpeg =
+            find_ffmpeg().ok_or_else(|| anyhow::anyhow!("未找到 ffmpeg，无法播放预览音频"))?;
+        let mut command = Command::new(ffmpeg);
+        hide_command_window(&mut command);
+        let mut child = command
+            .arg("-hide_banner")
+            .arg("-nostdin")
+            .arg("-nostats")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-ss")
+            .arg(format!("{:.3}", start_time.max(0.0)))
+            .arg("-i")
+            .arg(path_arg(video_path))
+            .arg("-map")
+            .arg("0:a:0")
+            .arg("-vn")
+            .arg("-f")
+            .arg("f32le")
+            .arg("-sample_fmt")
+            .arg("flt")
+            .arg("-ar")
+            .arg("48000")
+            .arg("-ac")
+            .arg("2")
+            .arg("pipe:1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("启动预览音频失败")?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("无法读取预览音频输出"))?;
+        let sink = rodio::Sink::connect_new(stream.mixer());
+        sink.append(FfmpegPcmSource { stdout });
+        sink.play();
+        self.playback = Some(AudioPlayback { sink, child });
+        Ok(())
+    }
+}
+
+struct AudioPlayback {
+    sink: rodio::Sink,
+    child: Child,
+}
+
+impl Drop for AudioPlayback {
+    fn drop(&mut self) {
+        self.sink.stop();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct FfmpegPcmSource {
+    stdout: std::process::ChildStdout,
+}
+
+impl Iterator for FfmpegPcmSource {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut bytes = [0_u8; 4];
+        self.stdout.read_exact(&mut bytes).ok()?;
+        Some(f32::from_le_bytes(bytes))
+    }
+}
+
+impl rodio::Source for FfmpegPcmSource {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> rodio::ChannelCount {
+        2
+    }
+
+    fn sample_rate(&self) -> rodio::SampleRate {
+        48_000
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        None
     }
 }
 

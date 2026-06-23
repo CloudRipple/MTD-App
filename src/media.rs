@@ -313,7 +313,7 @@ fn ffmpeg_args(args: &[&str]) -> Vec<String> {
     args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
-fn find_ffmpeg() -> Option<PathBuf> {
+pub(crate) fn find_ffmpeg() -> Option<PathBuf> {
     let executable_name = if cfg!(windows) {
         "ffmpeg.exe"
     } else {
@@ -369,7 +369,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.exists())
 }
 
-fn path_arg(path: &Path) -> String {
+pub(crate) fn path_arg(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 

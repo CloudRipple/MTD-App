@@ -1659,7 +1659,7 @@ fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: 
         );
     }
 
-    if let Some(error) = preview.last_error() {
+    if let Some(error) = preview.last_error().or_else(|| preview.last_audio_error()) {
         let message = compact_error(&error);
         ui.painter().text(
             egui::pos2(rect.center().x, rect.bottom() - 18.0),
