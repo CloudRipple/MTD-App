@@ -9,6 +9,18 @@ if (!(Test-Path $FontFile) -or !(Test-Path $FontLicenseFile)) {
 }
 
 .\scripts\build-ffmpeg-windows.ps1
+
+$FfmpegFiles = @(
+  "vendor\ffmpeg\windows\ffmpeg.exe",
+  "vendor\ffmpeg\windows\BUILD_INFO.txt"
+)
+
+foreach ($FfmpegFile in $FfmpegFiles) {
+  if (!(Test-Path $FfmpegFile)) {
+    Write-Error "Missing $FfmpegFile after building bundled FFmpeg."
+  }
+}
+
 cargo build --release
 New-Item -ItemType Directory -Force -Path dist\windows | Out-Null
 New-Item -ItemType Directory -Force -Path dist\windows\fonts | Out-Null

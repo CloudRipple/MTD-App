@@ -91,7 +91,7 @@ STAMP_VALUE="commit=$FFMPEG_COMMIT
 platform=$PLATFORM
 flags=${CONFIGURE_FLAGS[*]} $EXTRA_FLAGS_TEXT"
 
-if [ -x "$OUTPUT_FILE" ] && [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$STAMP_VALUE" ]; then
+if [ -x "$OUTPUT_FILE" ] && [ -f "$BUILD_INFO_FILE" ] && [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$STAMP_VALUE" ]; then
   echo "Bundled ffmpeg is up to date: $OUTPUT_FILE"
   exit 0
 fi
@@ -113,12 +113,8 @@ mkdir -p "$BUILD_DIR" "$PREFIX_DIR"
 cp "$BUILD_DIR/install/bin/$EXE_NAME" "$OUTPUT_FILE"
 chmod +x "$OUTPUT_FILE"
 
-cat > "$STAMP_FILE" <<EOF
-$STAMP_VALUE
-EOF
-
 cat > "$BUILD_INFO_FILE" <<EOF
-FFmpeg source: https://git.ffmpeg.org/ffmpeg.git
+FFmpeg source: https://github.com/FFmpeg/FFmpeg.git
 FFmpeg commit: $FFMPEG_COMMIT
 Platform: $PLATFORM
 Configure flags:
@@ -128,6 +124,10 @@ This project builds FFmpeg with LGPL-compatible defaults:
 - --disable-gpl
 - --disable-nonfree
 - --enable-libass for the subtitles filter used by burn-in output
+EOF
+
+cat > "$STAMP_FILE" <<EOF
+$STAMP_VALUE
 EOF
 
 echo "Built bundled ffmpeg: $OUTPUT_FILE"
