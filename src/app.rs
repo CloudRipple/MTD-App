@@ -14,6 +14,7 @@ use crate::{
     models::{JobSnapshot, PreviewMode},
     pipeline::run_job,
     platform::default_output_dir,
+    secret_store::{self, ApiKeyStorage},
     subtitles::{render_srt, write_srt, write_vtt},
     theme::CANVAS,
 };
@@ -25,6 +26,10 @@ pub(crate) struct MtdApp {
     pub(crate) model: String,
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
+    pub(crate) remember_api_key: bool,
+    pub(crate) saved_api_key: Option<String>,
+    pub(crate) api_key_store_message: Option<String>,
+    pub(crate) api_key_store_error: bool,
     pub(crate) model_picker_open: bool,
     pub(crate) preview_mode: PreviewMode,
     pub(crate) speaker_names: BTreeMap<String, String>,
@@ -36,13 +41,35 @@ pub(crate) struct MtdApp {
 
 impl Default for MtdApp {
     fn default() -> Self {
+        let (api_key, remember_api_key, saved_api_key, api_key_store_message, api_key_store_error) =
+            match secret_store::load_api_key() {
+                Ok(Some(api_key)) => (
+                    api_key.clone(),
+                    true,
+                    Some(api_key),
+                    Some("已载入本机保存的 API Key".to_owned()),
+                    false,
+                ),
+                Ok(None) => (String::new(), false, None, None, false),
+                Err(error) => (
+                    String::new(),
+                    false,
+                    None,
+                    Some(format!("读取保存的 API Key 失败：{error}")),
+                    true,
+                ),
+            };
         Self {
             video_path: None,
             output_dir: default_output_dir(),
-            api_key: String::new(),
+            api_key,
             model: DEFAULT_MODEL.to_owned(),
             max_tokens: 48_000,
             include_speaker: true,
+            remember_api_key,
+            saved_api_key,
+            api_key_store_message,
+            api_key_store_error,
             model_picker_open: false,
             preview_mode: PreviewMode::Rendered,
             speaker_names: BTreeMap::new(),
@@ -89,6 +116,44 @@ impl eframe::App for MtdApp {
 }
 
 impl MtdApp {
+    pub(crate) fn save_api_key_to_store(&mut self) {
+        let api_key = self.api_key.trim();
+        if api_key.is_empty() {
+            self.remember_api_key = self.saved_api_key.is_some();
+            self.api_key_store_message = Some("API Key 为空，未保存".to_owned());
+            self.api_key_store_error = true;
+            return;
+        }
+
+        match secret_store::save_api_key(api_key) {
+            Ok(storage) => {
+                self.saved_api_key = Some(api_key.to_owned());
+                self.remember_api_key = true;
+                self.api_key_store_message = Some(saved_message(storage));
+                self.api_key_store_error = false;
+            }
+            Err(error) => {
+                self.api_key_store_message = Some(format!("保存 API Key 失败：{error}"));
+                self.api_key_store_error = true;
+            }
+        }
+    }
+
+    pub(crate) fn forget_saved_api_key(&mut self) {
+        match secret_store::clear_api_key() {
+            Ok(()) => {
+                self.saved_api_key = None;
+                self.remember_api_key = false;
+                self.api_key_store_message = Some("已从本机移除保存的 API Key".to_owned());
+                self.api_key_store_error = false;
+            }
+            Err(error) => {
+                self.api_key_store_message = Some(format!("移除保存的 API Key 失败：{error}"));
+                self.api_key_store_error = true;
+            }
+        }
+    }
+
     pub(crate) fn start_job(&mut self) {
         let Some(video_path) = self.video_path.clone() else {
             return;
@@ -224,6 +289,10 @@ impl MtdApp {
         segment.text = text;
         sync_subtitle_outputs(&mut state);
     }
+}
+
+fn saved_message(storage: ApiKeyStorage) -> String {
+    format!("已保存到{}，下次打开会自动填入", storage.label())
 }
 
 fn sync_subtitle_outputs(state: &mut JobSnapshot) {

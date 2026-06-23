@@ -185,7 +185,8 @@ impl MtdApp {
             });
 
             ui.add_space(12.0);
-            api_key_field(ui, &mut self.api_key);
+            let api_key_response = api_key_field(ui, &mut self.api_key);
+            self.render_api_key_storage_controls(ui, api_key_response.changed());
 
             ui.add_space(10.0);
             let model_response = setting_row_button(
@@ -495,6 +496,57 @@ impl MtdApp {
             });
     }
 
+    fn render_api_key_storage_controls(&mut self, ui: &mut egui::Ui, key_changed: bool) {
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let remember_changed = ui
+                .checkbox(&mut self.remember_api_key, "记住 API Key")
+                .changed();
+            if remember_changed {
+                if self.remember_api_key {
+                    self.save_api_key_to_store();
+                } else {
+                    self.forget_saved_api_key();
+                }
+            }
+
+            let trimmed_key = self.api_key.trim();
+            let has_unsaved_key = self.saved_api_key.as_deref() != Some(trimmed_key);
+            let can_save = self.remember_api_key && !trimmed_key.is_empty() && has_unsaved_key;
+            if ui
+                .add_enabled(can_save, egui::Button::new("保存"))
+                .clicked()
+            {
+                self.save_api_key_to_store();
+            }
+
+            if ui
+                .add_enabled(self.saved_api_key.is_some(), egui::Button::new("忘记"))
+                .clicked()
+            {
+                self.forget_saved_api_key();
+            }
+        });
+
+        if key_changed && self.remember_api_key && self.saved_api_key.is_some() {
+            self.api_key_store_message = Some("API Key 已修改，点击保存后下次打开生效".to_owned());
+            self.api_key_store_error = false;
+        }
+
+        let message = self
+            .api_key_store_message
+            .as_deref()
+            .unwrap_or("未记住时仅保存在当前运行内存中");
+        let color = if self.api_key_store_error {
+            DANGER
+        } else if self.remember_api_key {
+            ACCENT_DARK
+        } else {
+            FAINT
+        };
+        ui.label(egui::RichText::new(message).size(12.0).color(color));
+    }
+
     fn render_rendered_preview(
         &mut self,
         ui: &mut egui::Ui,
@@ -583,7 +635,7 @@ fn setting_block(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
         .show(ui, add_contents);
 }
 
-fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) {
+fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) -> egui::Response {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(246, 250, 250))
         .stroke(egui::Stroke::new(1.0, BORDER))
@@ -599,7 +651,7 @@ fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) {
                             .color(MUTED),
                     );
                     ui.label(
-                        egui::RichText::new("仅保存在当前运行内存中，用于上传音频和查询任务")
+                        egui::RichText::new("默认仅保存在运行内存中，可选择记住到本机")
                             .size(12.0)
                             .color(FAINT),
                     );
@@ -635,9 +687,11 @@ fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) {
                             .password(true)
                             .frame(false)
                             .hint_text("粘贴 API Key，不需要包含 Bearer"),
-                    );
-                });
-        });
+                    )
+                })
+                .inner
+        })
+        .inner
 }
 
 fn tiny_status_chip(ui: &mut egui::Ui, label: &str, ready: bool) {

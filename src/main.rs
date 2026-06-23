@@ -9,6 +9,7 @@ mod media_types;
 mod models;
 mod pipeline;
 mod platform;
+mod secret_store;
 mod subtitles;
 mod theme;
 mod ui;
