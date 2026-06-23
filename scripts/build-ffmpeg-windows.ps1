@@ -32,6 +32,8 @@ $MsysCommand = @"
 export MSYSTEM=MINGW64
 export CHERE_INVOKING=1
 export PATH="/mingw64/bin:/usr/bin:`$PATH"
+export PKG_CONFIG="/mingw64/bin/pkgconf"
+export PKG_CONFIG_LIBDIR="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
 export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig:`${PKG_CONFIG_PATH:-}"
 cd '$RootForBash'
 scripts/build-ffmpeg.sh windows
