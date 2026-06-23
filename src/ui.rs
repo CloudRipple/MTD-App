@@ -19,6 +19,11 @@ use crate::{
 const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
 const PREVIEW_BORDER_RESERVE: f32 = 2.0;
 const INLINE_FONT_ROW_HEIGHT: f32 = 24.0;
+const VIDEO_HEADER_HEIGHT: f32 = 30.0;
+const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
+const VIDEO_CURRENT_SUBTITLE_HEIGHT: f32 = 72.0;
+const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
+    VIDEO_HEADER_HEIGHT + 8.0 + VIDEO_CONTROLS_HEIGHT + 8.0 + VIDEO_CURRENT_SUBTITLE_HEIGHT;
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
@@ -550,17 +555,23 @@ impl MtdApp {
             let active_segment = active_segment_at(&snapshot.segments, current_time);
 
             let video_width = ui.available_width();
-            let available_video_height = (ui.available_height() - 116.0).max(160.0);
+            let available_video_height = (ui.available_height() - VIDEO_REVIEW_CHROME_HEIGHT)
+                .clamp(96.0, video_width / 16.0 * 9.0);
             let video_height = ((video_width / 16.0) * 9.0)
                 .min(available_video_height)
-                .max(160.0);
+                .max(96.0);
             video_surface(ui, &self.video_preview, video_width, video_height);
 
             ui.add_space(8.0);
             video_controls(ui, &mut self.video_preview, duration);
 
             ui.add_space(8.0);
-            current_subtitle_card(ui, active_segment, current_time);
+            current_subtitle_card(
+                ui,
+                active_segment,
+                current_time,
+                VIDEO_CURRENT_SUBTITLE_HEIGHT,
+            );
         });
     }
 
@@ -1292,7 +1303,7 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
 }
 
 fn review_panel_body_height(panel_height: f32) -> f32 {
-    (panel_height - 28.0).max(160.0)
+    (panel_height - 28.0 - PREVIEW_BORDER_RESERVE).max(160.0)
 }
 
 fn video_empty_state(ui: &mut egui::Ui, message: &str) {
@@ -1320,8 +1331,10 @@ fn video_empty_state(ui: &mut egui::Ui, message: &str) {
 }
 
 fn video_preview_header(ui: &mut egui::Ui, badge: &str) {
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), VIDEO_HEADER_HEIGHT),
+        egui::Sense::hover(),
+    );
     ui.painter().text(
         egui::pos2(rect.left(), rect.center().y),
         egui::Align2::LEFT_CENTER,
@@ -1460,40 +1473,52 @@ fn video_controls(ui: &mut egui::Ui, preview: &mut VideoPreview, duration: f64) 
     });
 }
 
-fn current_subtitle_card(ui: &mut egui::Ui, segment: Option<&Segment>, current_time: f64) {
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(247, 250, 251))
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(12, 9))
-        .show(ui, |ui| {
-            ui.set_width((ui.available_width() - 24.0).max(0.0));
-            if let Some(segment) = segment {
-                ui.horizontal(|ui| {
-                    compact_speaker_badge(ui, &segment.speaker);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} – {}",
-                            display_time(segment.start),
-                            display_time(segment.end)
-                        ))
-                        .monospace()
-                        .size(12.0)
-                        .color(FAINT),
-                    );
+fn current_subtitle_card(
+    ui: &mut egui::Ui,
+    segment: Option<&Segment>,
+    current_time: f64,
+    height: f32,
+) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), height),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgb(247, 250, 251))
+                .stroke(egui::Stroke::new(1.0, BORDER))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.set_width((ui.available_width() - 24.0).max(0.0));
+                    ui.set_min_height((height - 16.0).max(44.0));
+                    if let Some(segment) = segment {
+                        ui.horizontal(|ui| {
+                            compact_speaker_badge(ui, &segment.speaker);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} – {}",
+                                    display_time(segment.start),
+                                    display_time(segment.end)
+                                ))
+                                .monospace()
+                                .size(12.0)
+                                .color(FAINT),
+                            );
+                        });
+                        ui.add_space(3.0);
+                        ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!("当前时间 {}", display_time(current_time)))
+                                .monospace()
+                                .size(12.0)
+                                .color(FAINT),
+                        );
+                        ui.label(egui::RichText::new("无匹配字幕").size(14.0).color(MUTED));
+                    }
                 });
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
-            } else {
-                ui.label(
-                    egui::RichText::new(format!("当前时间 {}", display_time(current_time)))
-                        .monospace()
-                        .size(12.0)
-                        .color(FAINT),
-                );
-                ui.label(egui::RichText::new("无匹配字幕").size(14.0).color(MUTED));
-            }
-        });
+        },
+    );
 }
 
 fn fit_texture_rect(container: egui::Rect, image_size: egui::Vec2) -> egui::Rect {

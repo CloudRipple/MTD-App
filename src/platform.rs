@@ -34,8 +34,8 @@ fn app_viewport() -> egui::ViewportBuilder {
         .with_title_shown(false)
         .with_titlebar_shown(false)
         .with_movable_by_background(true)
-        .with_inner_size([1360.0, 860.0])
-        .with_min_inner_size([1120.0, 760.0])
+        .with_inner_size([1440.0, 930.0])
+        .with_min_inner_size([1180.0, 820.0])
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -43,8 +43,8 @@ fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
         .with_app_id("cn.mtd.subtitle-app")
         .with_title("MTD 字幕工作台")
-        .with_inner_size([1360.0, 860.0])
-        .with_min_inner_size([1120.0, 760.0])
+        .with_inner_size([1440.0, 930.0])
+        .with_min_inner_size([1180.0, 820.0])
 }
 
 pub(crate) fn install_app_fonts(ctx: &egui::Context) {
