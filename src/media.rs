@@ -1,7 +1,8 @@
 use std::{
     env,
+    io::Read,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -99,29 +100,31 @@ pub(crate) fn media_duration(media_path: &Path) -> Result<Option<f64>> {
     Ok(parse_duration(&stderr))
 }
 
-pub(crate) fn render_subtitle_preview_frame(
+pub(crate) fn stream_subtitle_preview_frames(
     video_path: &Path,
     srt_path: &Path,
-    time_seconds: f64,
     width: usize,
     height: usize,
+    fps: f64,
+    max_frames: usize,
     options: &SubtitleBurnOptions,
-) -> Result<PreviewFrame> {
+    mut on_frame: impl FnMut(usize, Vec<u8>) -> bool,
+) -> Result<usize> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
     let input = path_arg(video_path);
     let subtitle_filter = subtitle_filter(srt_path, options);
     let filter = format!(
-        "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
+        "fps={fps:.6},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
     );
-    let output = Command::new(ffmpeg)
+    let mut child = Command::new(ffmpeg)
         .arg("-hide_banner")
-        .arg("-ss")
-        .arg(format!("{:.3}", time_seconds.max(0.0)))
+        .arg("-nostats")
+        .arg("-loglevel")
+        .arg("error")
         .arg("-i")
         .arg(input)
-        .arg("-frames:v")
-        .arg("1")
+        .arg("-an")
         .arg("-vf")
         .arg(filter)
         .arg("-f")
@@ -129,31 +132,51 @@ pub(crate) fn render_subtitle_preview_frame(
         .arg("-pix_fmt")
         .arg("rgb24")
         .arg("pipe:1")
-        .output()
-        .context("渲染预览帧失败")?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("启动预渲染失败")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("预览帧渲染失败：{}", stderr.trim()));
-    }
-
-    let expected_len = width
+    let frame_len = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(3))
         .ok_or_else(|| anyhow!("预览帧尺寸过大"))?;
-    if output.stdout.len() != expected_len {
-        return Err(anyhow!(
-            "预览帧尺寸异常：预期 {} 字节，实际 {} 字节",
-            expected_len,
-            output.stdout.len()
-        ));
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("无法读取预渲染输出"))?;
+    let mut frames = 0usize;
+
+    while frames < max_frames {
+        let mut rgb = vec![0; frame_len];
+        match stdout.read_exact(&mut rgb) {
+            Ok(()) => {
+                if !on_frame(frames, rgb) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(frames);
+                }
+                frames += 1;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error).context("读取预渲染帧失败");
+            }
+        }
     }
 
-    Ok(PreviewFrame {
-        width,
-        height,
-        rgb: output.stdout,
-    })
+    drop(stdout);
+    let output = child.wait_with_output().context("等待预渲染结束失败")?;
+    if !output.status.success() && frames == 0 {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("预渲染失败：{}", stderr.trim()));
+    }
+
+    Ok(frames)
 }
 
 fn burn_subtitle_commands(

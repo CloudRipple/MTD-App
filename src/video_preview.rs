@@ -8,13 +8,14 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    media::{PreviewFrame, SubtitleBurnOptions, media_duration, render_subtitle_preview_frame},
+    media::{PreviewFrame, SubtitleBurnOptions, media_duration, stream_subtitle_preview_frames},
     models::Segment,
 };
 
-const PREVIEW_FRAME_WIDTH: usize = 960;
-const PREVIEW_FRAME_HEIGHT: usize = 540;
-const FRAME_INTERVAL_SECONDS: f64 = 0.28;
+const PREVIEW_FRAME_WIDTH: usize = 640;
+const PREVIEW_FRAME_HEIGHT: usize = 360;
+const PREVIEW_FPS: f64 = 3.0;
+const PREVIEW_CACHE_BUDGET_BYTES: usize = 192 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PreviewSource {
@@ -22,18 +23,21 @@ struct PreviewSource {
     srt_path: PathBuf,
 }
 
-#[derive(Default)]
-struct FrameSlot {
-    pending: bool,
-    request_id: u64,
-    image: Option<PreviewImage>,
-    error: Option<String>,
-}
-
-struct PreviewImage {
-    request_id: u64,
+#[derive(Clone, Debug)]
+struct CachedFrame {
+    index: usize,
     time: f64,
     frame: PreviewFrame,
+}
+
+#[derive(Default)]
+struct RenderCache {
+    generation: u64,
+    pending: bool,
+    complete: bool,
+    key: Option<String>,
+    frames: Vec<CachedFrame>,
+    error: Option<String>,
 }
 
 pub(crate) struct VideoPreview {
@@ -42,11 +46,10 @@ pub(crate) struct VideoPreview {
     current_time: f64,
     playing: bool,
     last_tick: Option<Instant>,
-    frame_slot: Arc<Mutex<FrameSlot>>,
+    cache: Arc<Mutex<RenderCache>>,
     texture: Option<egui::TextureHandle>,
-    texture_request_id: u64,
+    texture_frame_index: Option<usize>,
     texture_time: Option<f64>,
-    needs_frame: bool,
 }
 
 impl Default for VideoPreview {
@@ -57,11 +60,10 @@ impl Default for VideoPreview {
             current_time: 0.0,
             playing: false,
             last_tick: None,
-            frame_slot: Arc::new(Mutex::new(FrameSlot::default())),
+            cache: Arc::new(Mutex::new(RenderCache::default())),
             texture: None,
-            texture_request_id: 0,
+            texture_frame_index: None,
             texture_time: None,
-            needs_frame: false,
         }
     }
 }
@@ -88,15 +90,11 @@ impl VideoPreview {
     }
 
     pub(crate) fn is_pending(&self) -> bool {
-        self.frame_slot.lock().expect("preview frame lock").pending
+        self.cache.lock().expect("preview cache lock").pending
     }
 
     pub(crate) fn last_error(&self) -> Option<String> {
-        self.frame_slot
-            .lock()
-            .expect("preview frame lock")
-            .error
-            .clone()
+        self.cache.lock().expect("preview cache lock").error.clone()
     }
 
     pub(crate) fn prepare(&mut self, video_path: &Path, srt_path: &Path, segments: &[Segment]) {
@@ -114,10 +112,9 @@ impl VideoPreview {
         self.playing = false;
         self.last_tick = None;
         self.texture = None;
-        self.texture_request_id = 0;
+        self.texture_frame_index = None;
         self.texture_time = None;
-        self.needs_frame = true;
-        *self.frame_slot.lock().expect("preview frame lock") = FrameSlot::default();
+        self.reset_cache();
     }
 
     pub(crate) fn reset(&mut self) {
@@ -127,23 +124,20 @@ impl VideoPreview {
         self.playing = false;
         self.last_tick = None;
         self.texture = None;
-        self.texture_request_id = 0;
+        self.texture_frame_index = None;
         self.texture_time = None;
-        self.needs_frame = false;
-        *self.frame_slot.lock().expect("preview frame lock") = FrameSlot::default();
+        self.reset_cache();
     }
 
     pub(crate) fn invalidate(&mut self) {
+        self.texture_frame_index = None;
         self.texture_time = None;
-        self.needs_frame = true;
+        self.reset_cache();
     }
 
     pub(crate) fn toggle_playing(&mut self) {
         self.playing = !self.playing;
         self.last_tick = self.playing.then(Instant::now);
-        if self.playing {
-            self.needs_frame = true;
-        }
     }
 
     pub(crate) fn pause(&mut self) {
@@ -154,7 +148,6 @@ impl VideoPreview {
     pub(crate) fn seek(&mut self, time: f64) {
         self.current_time = self.clamp_time(time);
         self.last_tick = self.playing.then(Instant::now);
-        self.needs_frame = true;
     }
 
     pub(crate) fn update_playback(&mut self, fallback_duration: f64) {
@@ -174,14 +167,87 @@ impl VideoPreview {
         }
     }
 
-    pub(crate) fn sync_frame(&mut self, ctx: &egui::Context) {
-        let mut slot = self.frame_slot.lock().expect("preview frame lock");
-        let Some(image) = slot.image.take() else {
+    pub(crate) fn ensure_cache(&mut self, ctx: &egui::Context, options: SubtitleBurnOptions) {
+        let Some(source) = self.source.clone() else {
             return;
         };
-        let color_image =
-            egui::ColorImage::from_rgb([image.frame.width, image.frame.height], &image.frame.rgb);
+        let preview_fps = self
+            .duration
+            .map(adaptive_preview_fps)
+            .unwrap_or(PREVIEW_FPS);
+        let key = render_key(&source, &options);
+        {
+            let cache = self.cache.lock().expect("preview cache lock");
+            if cache.pending || cache.key.as_deref() == Some(&key) {
+                return;
+            }
+        }
 
+        let mut cache = self.cache.lock().expect("preview cache lock");
+        cache.generation = cache.generation.wrapping_add(1);
+        cache.pending = true;
+        cache.complete = false;
+        cache.key = Some(key);
+        cache.frames.clear();
+        cache.error = None;
+        let generation = cache.generation;
+        let cache_handle = Arc::clone(&self.cache);
+        let ctx = ctx.clone();
+        drop(cache);
+
+        thread::spawn(move || {
+            let max_frames = preview_max_frames();
+            let result = stream_subtitle_preview_frames(
+                &source.video_path,
+                &source.srt_path,
+                PREVIEW_FRAME_WIDTH,
+                PREVIEW_FRAME_HEIGHT,
+                preview_fps,
+                max_frames,
+                &options,
+                |index, rgb| {
+                    let mut cache = cache_handle.lock().expect("preview cache lock");
+                    if cache.generation != generation {
+                        return false;
+                    }
+                    cache.frames.push(CachedFrame {
+                        index,
+                        time: index as f64 / preview_fps,
+                        frame: PreviewFrame {
+                            width: PREVIEW_FRAME_WIDTH,
+                            height: PREVIEW_FRAME_HEIGHT,
+                            rgb,
+                        },
+                    });
+                    if index == 0 || index % 6 == 0 {
+                        ctx.request_repaint();
+                    }
+                    true
+                },
+            );
+
+            let mut cache = cache_handle.lock().expect("preview cache lock");
+            if cache.generation == generation {
+                cache.pending = false;
+                cache.complete = result.is_ok();
+                if let Err(error) = result {
+                    cache.error = Some(error.to_string());
+                }
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    pub(crate) fn sync_frame(&mut self, ctx: &egui::Context) {
+        let Some(frame) = self.cached_frame_for_current_time() else {
+            return;
+        };
+        if self.texture_frame_index == Some(frame.index) {
+            return;
+        }
+
+        let color_image =
+            egui::ColorImage::from_rgb([frame.frame.width, frame.frame.height], &frame.frame.rgb);
         if let Some(texture) = self.texture.as_mut() {
             texture.set(color_image, egui::TextureOptions::LINEAR);
         } else {
@@ -191,65 +257,31 @@ impl VideoPreview {
                 egui::TextureOptions::LINEAR,
             ));
         }
-        self.texture_request_id = image.request_id;
-        self.texture_time = Some(image.time);
+        self.texture_frame_index = Some(frame.index);
+        self.texture_time = Some(frame.time);
     }
 
-    pub(crate) fn maybe_request_frame(
-        &mut self,
-        ctx: &egui::Context,
-        options: SubtitleBurnOptions,
-    ) {
-        let Some(source) = self.source.clone() else {
-            return;
-        };
-        let needs_due_to_time = self
-            .texture_time
-            .map(|time| (time - self.current_time).abs() >= FRAME_INTERVAL_SECONDS)
-            .unwrap_or(true);
-        if !self.needs_frame && !needs_due_to_time {
-            return;
-        }
+    fn cached_frame_for_current_time(&self) -> Option<CachedFrame> {
+        let cache = self.cache.lock().expect("preview cache lock");
+        cache
+            .frames
+            .iter()
+            .min_by(|left, right| {
+                let left_distance = (left.time - self.current_time).abs();
+                let right_distance = (right.time - self.current_time).abs();
+                left_distance.total_cmp(&right_distance)
+            })
+            .cloned()
+    }
 
-        let mut slot = self.frame_slot.lock().expect("preview frame lock");
-        if slot.pending {
-            return;
-        }
-        slot.pending = true;
-        slot.error = None;
-        slot.request_id = slot.request_id.wrapping_add(1);
-        let request_id = slot.request_id;
-        let frame_slot = Arc::clone(&self.frame_slot);
-        let time = self.current_time;
-        let ctx = ctx.clone();
-        self.needs_frame = false;
-        drop(slot);
-
-        thread::spawn(move || {
-            let result = render_subtitle_preview_frame(
-                &source.video_path,
-                &source.srt_path,
-                time,
-                PREVIEW_FRAME_WIDTH,
-                PREVIEW_FRAME_HEIGHT,
-                &options,
-            );
-            let mut slot = frame_slot.lock().expect("preview frame lock");
-            match result {
-                Ok(frame) => {
-                    slot.image = Some(PreviewImage {
-                        request_id,
-                        time,
-                        frame,
-                    });
-                }
-                Err(error) => {
-                    slot.error = Some(error.to_string());
-                }
-            }
-            slot.pending = false;
-            ctx.request_repaint();
-        });
+    fn reset_cache(&mut self) {
+        let mut cache = self.cache.lock().expect("preview cache lock");
+        cache.generation = cache.generation.wrapping_add(1);
+        cache.pending = false;
+        cache.complete = false;
+        cache.key = None;
+        cache.frames.clear();
+        cache.error = None;
     }
 
     fn clamp_time(&self, time: f64) -> f64 {
@@ -276,6 +308,33 @@ pub(crate) fn active_segment_at(segments: &[Segment], time: f64) -> Option<&Segm
                 left_distance.total_cmp(&right_distance)
             })
         })
+}
+
+fn preview_max_frames() -> usize {
+    let frame_bytes = PREVIEW_FRAME_WIDTH * PREVIEW_FRAME_HEIGHT * 3;
+    (PREVIEW_CACHE_BUDGET_BYTES / frame_bytes).max(1)
+}
+
+fn adaptive_preview_fps(duration: f64) -> f64 {
+    if duration <= 0.0 {
+        return PREVIEW_FPS;
+    }
+    PREVIEW_FPS.min(preview_max_frames() as f64 / duration.max(1.0))
+}
+
+fn render_key(source: &PreviewSource, options: &SubtitleBurnOptions) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        source.video_path.display(),
+        source.srt_path.display(),
+        options.font_family.as_deref().unwrap_or(""),
+        options.font_size,
+        options
+            .fonts_dir
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+    )
 }
 
 fn distance_to_segment(segment: &Segment, time: f64) -> f64 {

@@ -26,14 +26,9 @@ impl MtdApp {
             ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
                 ui.heading(
                     egui::RichText::new("字幕工作台")
-                        .size(24.0)
+                        .size(22.0)
                         .strong()
                         .color(INK),
-                );
-                ui.label(
-                    egui::RichText::new("支持音频转写，也可为视频生成字幕文件")
-                        .size(13.0)
-                        .color(MUTED),
                 );
             });
         });
@@ -495,7 +490,7 @@ impl MtdApp {
 
     pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         let available = ui.available_width();
-        let video_width = (available * 0.53).clamp(520.0, 740.0);
+        let video_width = (available * 0.44).clamp(460.0, 620.0);
         let panel_height = ui.available_height().max(260.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -517,6 +512,8 @@ impl MtdApp {
             ui.set_min_height(review_panel_body_height(height));
             let label = if self.video_preview.is_playing() {
                 "播放中"
+            } else if self.video_preview.is_pending() {
+                "预渲染"
             } else if self.video_preview.has_texture() {
                 "可检查"
             } else {
@@ -541,9 +538,9 @@ impl MtdApp {
                 .prepare(video_path, srt_path, &snapshot.segments);
             let fallback_duration = fallback_duration(&snapshot.segments);
             self.video_preview.update_playback(fallback_duration);
-            self.video_preview.sync_frame(ui.ctx());
             self.video_preview
-                .maybe_request_frame(ui.ctx(), self.subtitle_burn_options());
+                .ensure_cache(ui.ctx(), self.subtitle_burn_options());
+            self.video_preview.sync_frame(ui.ctx());
 
             let current_time = self.video_preview.current_time();
             let duration = self.video_preview.duration().unwrap_or(fallback_duration);
@@ -1401,7 +1398,7 @@ fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: 
         ui.painter().text(
             badge_rect.center(),
             egui::Align2::CENTER_CENTER,
-            "渲染中",
+            "预渲染",
             egui::FontId::proportional(12.0),
             egui::Color32::from_rgb(214, 226, 232),
         );
