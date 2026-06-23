@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::config::HARMONYOS_FONT_REGULAR;
+use crate::{config::HARMONYOS_FONT_REGULAR, embedded_assets};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SubtitleFont {
@@ -114,6 +114,10 @@ fn find_bundled_harmonyos_font() -> Option<PathBuf> {
         if candidate.exists() {
             return Some(candidate);
         }
+    }
+
+    if let Some(path) = embedded_assets::bundled_ui_font_path() {
+        return Some(path);
     }
 
     let mut candidates = Vec::new();

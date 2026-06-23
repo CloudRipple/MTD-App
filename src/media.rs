@@ -7,6 +7,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::{embedded_assets, platform::hide_command_window};
+
 #[derive(Clone, Debug)]
 pub(crate) struct PreviewFrame {
     pub(crate) width: usize,
@@ -18,7 +20,8 @@ pub(crate) fn extract_audio(video_path: &Path, audio_path: &Path) -> Result<()> 
     let input = path_arg(video_path);
     let output = path_arg(audio_path);
     run_ffmpeg(&ffmpeg_args(&[
-        "-i", &input, "-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "128k", &output,
+        "-i", &input, "-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "128k", "-threads", "1",
+        &output,
     ]))
 }
 
@@ -63,8 +66,11 @@ pub(crate) fn burn_subtitles(
 pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
-    let output = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    hide_command_window(&mut command);
+    let output = command
         .arg("-hide_banner")
+        .arg("-nostdin")
         .arg("-i")
         .arg(path_arg(media_path))
         .output()
@@ -90,8 +96,11 @@ pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
 pub(crate) fn media_duration(media_path: &Path) -> Result<Option<f64>> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
-    let output = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    hide_command_window(&mut command);
+    let output = command
         .arg("-hide_banner")
+        .arg("-nostdin")
         .arg("-i")
         .arg(path_arg(media_path))
         .output()
@@ -103,8 +112,11 @@ pub(crate) fn media_duration(media_path: &Path) -> Result<Option<f64>> {
 pub(crate) fn video_frame_rate(media_path: &Path) -> Result<Option<f64>> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
-    let output = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    hide_command_window(&mut command);
+    let output = command
         .arg("-hide_banner")
+        .arg("-nostdin")
         .arg("-i")
         .arg(path_arg(media_path))
         .output()
@@ -129,8 +141,11 @@ pub(crate) fn stream_subtitle_preview_frames(
     let filter = format!(
         "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
     );
-    let mut child = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    hide_command_window(&mut command);
+    let mut child = command
         .arg("-hide_banner")
+        .arg("-nostdin")
         .arg("-nostats")
         .arg("-loglevel")
         .arg("error")
@@ -277,8 +292,11 @@ fn subtitle_burn_args(
 fn run_ffmpeg(args: &[String]) -> Result<()> {
     let ffmpeg =
         find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
-    let output = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    hide_command_window(&mut command);
+    let output = command
         .arg("-hide_banner")
+        .arg("-nostdin")
         .arg("-y")
         .args(args)
         .output()
@@ -337,6 +355,9 @@ fn find_ffmpeg() -> Option<PathBuf> {
         if candidate.exists() {
             return Some(candidate);
         }
+    }
+    if let Some(path) = embedded_assets::bundled_ffmpeg_path() {
+        return Some(path);
     }
     find_in_path(executable_name)
 }

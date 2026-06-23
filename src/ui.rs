@@ -110,7 +110,8 @@ impl MtdApp {
                 .and_then(|name| name.to_str())
                 .map(str::to_owned)
                 .unwrap_or_else(|| "尚未选择媒体文件".to_owned());
-            path_pill(ui, &text, self.video_path.is_some());
+            let pill_width = path_pill_width(ui, 92.0);
+            path_pill(ui, &text, self.video_path.is_some(), pill_width);
             if ui
                 .add_sized([92.0, 32.0], egui::Button::new("选择"))
                 .clicked()
@@ -132,7 +133,8 @@ impl MtdApp {
         field_label(ui, "输出目录");
         ui.horizontal(|ui| {
             let output_text = self.output_dir.display().to_string();
-            path_pill(ui, &output_text, true);
+            let pill_width = path_pill_width(ui, 92.0);
+            path_pill(ui, &output_text, true, pill_width);
             if ui
                 .add_sized([92.0, 32.0], egui::Button::new("更改"))
                 .clicked()
@@ -140,6 +142,7 @@ impl MtdApp {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.output_dir = path;
                     self.save_current_settings();
+                    ui.ctx().request_repaint();
                 }
             }
         });
@@ -417,6 +420,7 @@ impl MtdApp {
 
         if ui.add_enabled(can_start, button).clicked() {
             self.start_job();
+            ui.ctx().request_repaint();
         }
     }
 
@@ -573,7 +577,7 @@ impl MtdApp {
             }
 
             self.video_preview
-                .prepare(video_path, srt_path, &snapshot.segments);
+                .prepare(ui.ctx(), video_path, srt_path, &snapshot.segments);
             let fallback_duration = fallback_duration(&snapshot.segments);
             self.video_preview.update_playback(fallback_duration);
             if self.video_preview.is_playing() {
@@ -828,22 +832,35 @@ fn inline_field_label(ui: &mut egui::Ui, text: &str) {
     );
 }
 
-fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool) {
+fn path_pill_width(ui: &egui::Ui, trailing_button_width: f32) -> f32 {
+    (ui.available_width() - trailing_button_width - ui.spacing().item_spacing.x).max(160.0)
+}
+
+fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool, width: f32) {
     let fill = if selected {
         egui::Color32::from_rgb(246, 249, 250)
     } else {
         egui::Color32::from_rgb(241, 245, 247)
     };
     let color = if selected { INK } else { FAINT };
-    egui::Frame::NONE
-        .fill(fill)
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .corner_radius(7.0)
-        .inner_margin(egui::Margin::symmetric(10, 7))
-        .show(ui, |ui| {
-            ui.set_min_width((ui.available_width() - 124.0).max(160.0));
-            ui.label(egui::RichText::new(text).color(color));
-        });
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 32.0), egui::Sense::hover());
+    ui.painter().rect(
+        rect,
+        7.0,
+        fill,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
+
+    let inner_rect = rect.shrink2(egui::vec2(10.0, 7.0));
+    ui.painter().with_clip_rect(inner_rect).text(
+        egui::pos2(inner_rect.left(), inner_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        text,
+        egui::TextStyle::Body.resolve(ui.style()),
+        color,
+    );
+    response.on_hover_text(text);
 }
 
 fn font_pill(ui: &mut egui::Ui, text: &str, width: f32) {

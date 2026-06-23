@@ -9,7 +9,18 @@ use eframe::egui;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
-use crate::config::HARMONYOS_FONT_REGULAR;
+use crate::{config::HARMONYOS_FONT_REGULAR, embedded_assets};
+
+#[cfg(windows)]
+pub(crate) fn hide_command_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_command_window(_command: &mut Command) {}
 
 pub(crate) fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
@@ -48,10 +59,14 @@ fn app_viewport() -> egui::ViewportBuilder {
 }
 
 pub(crate) fn install_app_fonts(ctx: &egui::Context) {
-    let Some((font_name, font_path)) = find_ui_font() else {
-        return;
-    };
-    let Ok(font_bytes) = fs::read(&font_path) else {
+    let font = embedded_assets::ui_font_bytes()
+        .map(|bytes| ("HarmonyOS Sans SC".to_owned(), bytes.to_vec()))
+        .or_else(|| {
+            let (font_name, font_path) = find_ui_font()?;
+            let font_bytes = fs::read(&font_path).ok()?;
+            Some((font_name, font_bytes))
+        });
+    let Some((font_name, font_bytes)) = font else {
         return;
     };
 

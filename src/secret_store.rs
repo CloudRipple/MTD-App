@@ -9,6 +9,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 
+use crate::platform::hide_command_window;
+
 const APP_DIR: &str = ".mtd-subtitle-app";
 const CREDENTIALS_FILE: &str = "credentials.json";
 #[cfg(target_os = "macos")]
@@ -16,6 +18,7 @@ const KEYCHAIN_SERVICE: &str = "cn.mtd.subtitle-app.moss-api-key";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ApiKeyStorage {
+    #[cfg(target_os = "macos")]
     Keychain,
     HiddenFile,
 }
@@ -23,6 +26,7 @@ pub(crate) enum ApiKeyStorage {
 impl ApiKeyStorage {
     pub(crate) fn label(self) -> &'static str {
         match self {
+            #[cfg(target_os = "macos")]
             Self::Keychain => "macOS Keychain",
             Self::HiddenFile => "~/.mtd-subtitle-app/credentials.json",
         }
@@ -113,6 +117,7 @@ fn save_file_api_key_to(dir: &PathBuf, api_key: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn write_storage_marker(storage: ApiKeyStorage) -> Result<()> {
     let dir = ensure_app_dir()?;
     let path = dir.join("settings.json");
@@ -150,7 +155,9 @@ fn ensure_app_dir() -> Result<PathBuf> {
     set_private_dir_permissions(&dir)?;
     #[cfg(windows)]
     {
-        let _ = Command::new("attrib").arg("+h").arg(&dir).status();
+        let mut command = Command::new("attrib");
+        hide_command_window(&mut command);
+        let _ = command.arg("+h").arg(&dir).status();
     }
     Ok(dir)
 }

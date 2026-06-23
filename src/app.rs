@@ -1,7 +1,10 @@
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::Duration,
 };
@@ -23,6 +26,11 @@ use crate::{
     video_preview::VideoPreview,
 };
 
+struct SettingsSaveResult {
+    generation: u64,
+    result: Result<(), String>,
+}
+
 pub(crate) struct MtdApp {
     pub(crate) video_path: Option<PathBuf>,
     pub(crate) output_dir: PathBuf,
@@ -36,6 +44,9 @@ pub(crate) struct MtdApp {
     pub(crate) subtitle_font_size_text: String,
     pub(crate) settings_store_message: Option<String>,
     pub(crate) settings_store_error: bool,
+    settings_save_generation: Arc<AtomicU64>,
+    settings_save_result: Arc<Mutex<Option<SettingsSaveResult>>>,
+    settings_save_write_lock: Arc<Mutex<()>>,
     pub(crate) remember_api_key: bool,
     pub(crate) saved_api_key: Option<String>,
     pub(crate) api_key_store_message: Option<String>,
@@ -94,6 +105,9 @@ impl Default for MtdApp {
             subtitle_font_size_text: subtitle_font_size.to_string(),
             settings_store_message: None,
             settings_store_error: false,
+            settings_save_generation: Arc::new(AtomicU64::new(0)),
+            settings_save_result: Arc::new(Mutex::new(None)),
+            settings_save_write_lock: Arc::new(Mutex::new(())),
             remember_api_key,
             saved_api_key,
             api_key_store_message,
@@ -112,6 +126,7 @@ impl Default for MtdApp {
 
 impl eframe::App for MtdApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_settings_save_result();
         let snapshot = self.job.lock().expect("job lock").clone();
         if snapshot.done {
             self.running = false;
@@ -233,15 +248,42 @@ impl MtdApp {
     }
 
     pub(crate) fn save_current_settings(&mut self) {
-        let settings = AppSettings {
-            output_dir: self.output_dir.clone(),
-            model: self.model.clone(),
-            max_tokens: self.max_tokens.clamp(1_000, 96_000),
-            include_speaker: self.include_speaker,
-            subtitle_font: self.selected_subtitle_font.clone(),
-            subtitle_font_size: self.subtitle_font_size.clamp(12, 96),
+        let settings = self.current_settings();
+        let generation = self.settings_save_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let generation_handle = Arc::clone(&self.settings_save_generation);
+        let result_handle = Arc::clone(&self.settings_save_result);
+        let write_lock = Arc::clone(&self.settings_save_write_lock);
+        self.settings_store_error = false;
+
+        thread::spawn(move || {
+            let _write_guard = write_lock.lock().expect("settings save write lock");
+            if generation_handle.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let result =
+                app_settings::save_app_settings(&settings).map_err(|error| error.to_string());
+
+            if generation_handle.load(Ordering::SeqCst) == generation {
+                *result_handle.lock().expect("settings save result lock") =
+                    Some(SettingsSaveResult { generation, result });
+            }
+        });
+    }
+
+    fn poll_settings_save_result(&mut self) {
+        let save_result = self
+            .settings_save_result
+            .lock()
+            .expect("settings save result lock")
+            .take();
+        let Some(save_result) = save_result else {
+            return;
         };
-        match app_settings::save_app_settings(&settings) {
+        if save_result.generation != self.settings_save_generation.load(Ordering::SeqCst) {
+            return;
+        }
+
+        match save_result.result {
             Ok(()) => {
                 self.settings_store_message = Some("设置已保存到本机".to_owned());
                 self.settings_store_error = false;
@@ -250,6 +292,17 @@ impl MtdApp {
                 self.settings_store_message = Some(format!("保存设置失败：{error}"));
                 self.settings_store_error = true;
             }
+        }
+    }
+
+    fn current_settings(&self) -> AppSettings {
+        AppSettings {
+            output_dir: self.output_dir.clone(),
+            model: self.model.clone(),
+            max_tokens: self.max_tokens.clamp(1_000, 96_000),
+            include_speaker: self.include_speaker,
+            subtitle_font: self.selected_subtitle_font.clone(),
+            subtitle_font_size: self.subtitle_font_size.clamp(12, 96),
         }
     }
 

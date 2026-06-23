@@ -159,7 +159,7 @@ fn time_from_value(value: Option<&Value>, fallback: f64) -> ParsedTime {
         };
     }
     let text = value.as_str().unwrap_or("0");
-    match text.parse::<f64>() {
+    match parse_time_text(text) {
         Ok(number) => ParsedTime {
             seconds: normalize_numeric_seconds(number, text),
             raw: None,
@@ -170,6 +170,31 @@ fn time_from_value(value: Option<&Value>, fallback: f64) -> ParsedTime {
             raw: Some(text.to_owned()),
             valid: false,
         },
+    }
+}
+
+fn parse_time_text(value: &str) -> Result<f64> {
+    let normalized = value.trim().replace(',', ".");
+    if normalized.is_empty() {
+        return Err(anyhow!("empty timestamp"));
+    }
+
+    let parts: Vec<&str> = normalized.split(':').collect();
+    let seconds = match parts.as_slice() {
+        [seconds] => seconds.parse::<f64>()?,
+        [minutes, seconds] => minutes.parse::<f64>()? * 60.0 + seconds.parse::<f64>()?,
+        [hours, minutes, seconds] => {
+            hours.parse::<f64>()? * 3600.0
+                + minutes.parse::<f64>()? * 60.0
+                + seconds.parse::<f64>()?
+        }
+        _ => return Err(anyhow!("invalid timestamp: {value}")),
+    };
+
+    if seconds.is_finite() {
+        Ok(seconds.max(0.0))
+    } else {
+        Err(anyhow!("invalid timestamp: {value}"))
     }
 }
 
@@ -239,10 +264,28 @@ mod tests {
     }
 
     #[test]
-    fn preserves_invalid_timestamp_for_repairable_preview() {
+    fn parses_minute_second_timestamp_strings() {
         let transcript = json!({
             "segments": [
-                { "start": "02:46.83", "end": 170.0, "text": "hello" }
+                { "start": "02:47.03", "end": "02:48.50", "text": "hello" }
+            ]
+        });
+
+        let segments = normalize_segments(&transcript).expect("normalize");
+
+        assert_eq!(segments.len(), 1);
+        assert!(segments[0].start_valid);
+        assert_eq!(segments[0].raw_start, None);
+        assert!((segments[0].start - 167.03).abs() < f64::EPSILON);
+        assert!(render_srt(&segments, false).is_ok());
+        assert!(render_srt_preview(&segments, false).contains("00:02:47,030 -->"));
+    }
+
+    #[test]
+    fn preserves_malformed_timestamp_for_repairable_preview() {
+        let transcript = json!({
+            "segments": [
+                { "start": "bad-time", "end": 170.0, "text": "hello" }
             ]
         });
 
@@ -250,8 +293,8 @@ mod tests {
 
         assert_eq!(segments.len(), 1);
         assert!(!segments[0].start_valid);
-        assert_eq!(segments[0].raw_start.as_deref(), Some("02:46.83"));
+        assert_eq!(segments[0].raw_start.as_deref(), Some("bad-time"));
         assert!(render_srt(&segments, false).is_err());
-        assert!(render_srt_preview(&segments, false).contains("02:46.83 -->"));
+        assert!(render_srt_preview(&segments, false).contains("bad-time -->"));
     }
 }

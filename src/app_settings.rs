@@ -8,7 +8,10 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 
-use crate::{config::DEFAULT_MODEL, platform::default_output_dir};
+use crate::{
+    config::DEFAULT_MODEL,
+    platform::{default_output_dir, hide_command_window},
+};
 
 const APP_DIR: &str = ".mtd-subtitle-app";
 const SETTINGS_FILE: &str = "app-settings.json";
@@ -115,10 +118,9 @@ fn ensure_app_dir() -> Result<PathBuf> {
     set_private_dir_permissions(&dir)?;
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("attrib")
-            .arg("+h")
-            .arg(&dir)
-            .status();
+        let mut command = std::process::Command::new("attrib");
+        hide_command_window(&mut command);
+        let _ = command.arg("+h").arg(&dir).status();
     }
     Ok(dir)
 }

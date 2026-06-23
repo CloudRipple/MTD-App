@@ -4,6 +4,7 @@ mod api;
 mod app;
 mod app_settings;
 mod config;
+mod embedded_assets;
 mod fonts;
 mod job;
 mod media;

@@ -45,10 +45,20 @@ struct RenderCache {
     error: Option<String>,
 }
 
+#[derive(Default)]
+struct MetadataProbe {
+    generation: u64,
+    pending: bool,
+    duration: Option<f64>,
+    frame_rate: Option<f64>,
+}
+
 pub(crate) struct VideoPreview {
     source: Option<PreviewSource>,
     duration: Option<f64>,
     frame_rate: f64,
+    metadata_generation: u64,
+    metadata: Arc<Mutex<MetadataProbe>>,
     current_time: f64,
     playing: bool,
     last_tick: Option<Instant>,
@@ -64,6 +74,8 @@ impl Default for VideoPreview {
             source: None,
             duration: None,
             frame_rate: FALLBACK_PREVIEW_FPS,
+            metadata_generation: 0,
+            metadata: Arc::new(Mutex::new(MetadataProbe::default())),
             current_time: 0.0,
             playing: false,
             last_tick: None,
@@ -104,7 +116,13 @@ impl VideoPreview {
         self.cache.lock().expect("preview cache lock").error.clone()
     }
 
-    pub(crate) fn prepare(&mut self, video_path: &Path, srt_path: &Path, _segments: &[Segment]) {
+    pub(crate) fn prepare(
+        &mut self,
+        ctx: &egui::Context,
+        video_path: &Path,
+        srt_path: &Path,
+        _segments: &[Segment],
+    ) {
         let next_source = PreviewSource {
             video_path: video_path.to_path_buf(),
             srt_path: srt_path.to_path_buf(),
@@ -114,11 +132,9 @@ impl VideoPreview {
         }
 
         self.source = Some(next_source);
-        self.duration = media_duration(video_path).ok().flatten();
-        self.frame_rate = video_frame_rate(video_path)
-            .ok()
-            .flatten()
-            .unwrap_or(FALLBACK_PREVIEW_FPS);
+        self.duration = None;
+        self.frame_rate = FALLBACK_PREVIEW_FPS;
+        self.start_metadata_probe(ctx, video_path);
         self.current_time = 0.0;
         self.playing = false;
         self.last_tick = None;
@@ -132,6 +148,7 @@ impl VideoPreview {
         self.source = None;
         self.duration = None;
         self.frame_rate = FALLBACK_PREVIEW_FPS;
+        self.metadata_generation = self.metadata_generation.wrapping_add(1);
         self.current_time = 0.0;
         self.playing = false;
         self.last_tick = None;
@@ -163,6 +180,7 @@ impl VideoPreview {
     }
 
     pub(crate) fn update_playback(&mut self, fallback_duration: f64) {
+        self.sync_metadata_probe();
         if !self.playing {
             return;
         }
@@ -327,6 +345,45 @@ impl VideoPreview {
     fn clamp_time(&self, time: f64) -> f64 {
         let upper = self.duration.unwrap_or(f64::MAX);
         time.max(0.0).min(upper)
+    }
+
+    fn start_metadata_probe(&mut self, ctx: &egui::Context, video_path: &Path) {
+        self.metadata_generation = self.metadata_generation.wrapping_add(1);
+        let generation = self.metadata_generation;
+        {
+            let mut metadata = self.metadata.lock().expect("preview metadata lock");
+            metadata.generation = generation;
+            metadata.pending = true;
+            metadata.duration = None;
+            metadata.frame_rate = None;
+        }
+
+        let video_path = video_path.to_path_buf();
+        let metadata_handle = Arc::clone(&self.metadata);
+        let ctx = ctx.clone();
+        thread::spawn(move || {
+            let duration = media_duration(&video_path).ok().flatten();
+            let frame_rate = video_frame_rate(&video_path).ok().flatten();
+
+            let mut metadata = metadata_handle.lock().expect("preview metadata lock");
+            if metadata.generation == generation {
+                metadata.pending = false;
+                metadata.duration = duration;
+                metadata.frame_rate = frame_rate;
+            }
+            drop(metadata);
+            ctx.request_repaint();
+        });
+    }
+
+    fn sync_metadata_probe(&mut self) {
+        let metadata = self.metadata.lock().expect("preview metadata lock");
+        if metadata.generation != self.metadata_generation || metadata.pending {
+            return;
+        }
+        self.duration = metadata.duration;
+        self.frame_rate = metadata.frame_rate.unwrap_or(FALLBACK_PREVIEW_FPS);
+        self.current_time = self.clamp_time(self.current_time);
     }
 }
 

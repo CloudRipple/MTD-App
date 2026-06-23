@@ -2,6 +2,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -38,12 +39,11 @@ pub(crate) fn run_job(
             .and_then(|name| name.to_str())
             .unwrap_or("media"),
     ));
-    fs::copy(&media_path, &input_copy).with_context(|| "无法复制媒体到输出目录")?;
-
-    let input_has_video = if is_direct_audio_path(&input_copy) {
+    update_job(job, "正在读取媒体信息", 8.0, None);
+    let input_has_video = if is_direct_audio_path(&media_path) {
         false
     } else {
-        has_video_stream(&input_copy)?
+        has_video_stream(&media_path)?
     };
 
     let audio_path = job_dir.join("audio.m4a");
@@ -56,11 +56,11 @@ pub(crate) fn run_job(
 
     let upload_audio_path = if input_has_video {
         update_job(job, "正在分离音频", 12.0, None);
-        extract_audio(&input_copy, &audio_path)?;
+        extract_audio(&media_path, &audio_path)?;
         audio_path.clone()
     } else {
         update_job(job, "正在准备音频", 12.0, None);
-        input_copy.clone()
+        media_path.clone()
     };
 
     update_job(job, "正在上传音频到 MOSS", 28.0, None);
@@ -90,6 +90,9 @@ pub(crate) fn run_job(
         state.task_id = task_id.clone();
     }
 
+    update_job(job, "正在后台归档媒体文件", 50.0, None);
+    let archive_handle = archive_media(media_path, input_copy.clone());
+
     update_job(job, "MOSS 正在转写和区分说话人", 58.0, None);
     let result = poll_task(&client, &api_key, &task_id, job)?;
     if result.get("status").and_then(Value::as_str) == Some("FAILED") {
@@ -111,6 +114,9 @@ pub(crate) fn run_job(
     if segments.is_empty() {
         return Err(anyhow!("转写成功，但没有可用字幕片段"));
     }
+
+    update_job(job, "正在归档媒体文件", 80.0, None);
+    finish_media_archive(archive_handle)?;
 
     fs::write(&json_path, serde_json::to_vec_pretty(&transcript)?)?;
     let full_text = transcript
@@ -153,6 +159,21 @@ pub(crate) fn run_job(
         state.clone()
     };
     save_project(&project_path, &snapshot)?;
+    Ok(())
+}
+
+fn archive_media(media_path: PathBuf, input_copy: PathBuf) -> thread::JoinHandle<Result<()>> {
+    thread::spawn(move || {
+        fs::copy(&media_path, &input_copy)
+            .with_context(|| format!("无法复制媒体到输出目录：{}", input_copy.display()))?;
+        Ok(())
+    })
+}
+
+fn finish_media_archive(handle: thread::JoinHandle<Result<()>>) -> Result<()> {
+    handle
+        .join()
+        .map_err(|_| anyhow!("媒体归档线程异常退出"))??;
     Ok(())
 }
 
