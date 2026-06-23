@@ -20,6 +20,7 @@ pub(crate) struct AppSettings {
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
     pub(crate) subtitle_font: Option<String>,
+    pub(crate) subtitle_font_size: u32,
 }
 
 impl Default for AppSettings {
@@ -30,6 +31,7 @@ impl Default for AppSettings {
             max_tokens: 48_000,
             include_speaker: true,
             subtitle_font: None,
+            subtitle_font_size: 24,
         }
     }
 }
@@ -75,6 +77,12 @@ pub(crate) fn load_app_settings() -> Result<AppSettings> {
             .map(str::trim)
             .filter(|font| !font.is_empty())
             .map(ToOwned::to_owned),
+        subtitle_font_size: value
+            .get("subtitle_font_size")
+            .and_then(Value::as_u64)
+            .and_then(|size| u32::try_from(size).ok())
+            .unwrap_or(24)
+            .clamp(12, 96),
     })
 }
 
@@ -88,6 +96,7 @@ pub(crate) fn save_app_settings(settings: &AppSettings) -> Result<()> {
         "max_tokens": settings.max_tokens,
         "include_speaker": settings.include_speaker,
         "subtitle_font": settings.subtitle_font,
+        "subtitle_font_size": settings.subtitle_font_size,
     });
     write_private_file(&temp_path, serde_json::to_vec_pretty(&payload)?)?;
     fs::rename(&temp_path, &path)
@@ -178,5 +187,6 @@ mod tests {
         assert_eq!(settings.max_tokens, 48_000);
         assert!(settings.include_speaker);
         assert!(settings.subtitle_font.is_none());
+        assert_eq!(settings.subtitle_font_size, 24);
     }
 }

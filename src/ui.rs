@@ -111,7 +111,14 @@ impl MtdApp {
         });
 
         ui.add_space(8.0);
-        field_label(ui, "字幕字体");
+        ui.horizontal_top(|ui| {
+            field_label(ui, "字幕字体");
+            ui.add_space(8.0);
+            if compact_font_size_control(ui, &mut self.subtitle_font_size).changed() {
+                self.subtitle_font_size = self.subtitle_font_size.clamp(12, 96);
+                self.save_current_settings();
+            }
+        });
         self.render_font_selector(ui);
 
         ui.add_space(8.0);
@@ -700,6 +707,29 @@ fn font_pill(ui: &mut egui::Ui, text: &str, width: f32) {
             ui.set_width((width - 20.0).max(120.0));
             ui.label(egui::RichText::new(text).color(INK));
         });
+}
+
+fn compact_font_size_control(ui: &mut egui::Ui, value: &mut u32) -> egui::Response {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(246, 249, 250))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 3.0;
+                let response = ui.add(
+                    egui::DragValue::new(value)
+                        .range(12..=96)
+                        .speed(1)
+                        .fixed_decimals(0),
+                );
+                ui.label(egui::RichText::new("号").size(12.0).color(MUTED));
+                response
+            })
+            .inner
+        })
+        .inner
 }
 
 fn settings_popup_frame() -> egui::Frame {
