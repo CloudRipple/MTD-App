@@ -39,7 +39,7 @@ jobs:
         include:
           - platform: macos
             os: macos-15
-            asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-macos
+            asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-macos.zip
           - platform: linux
             os: ubuntu-latest
             asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-linux
@@ -122,12 +122,11 @@ jobs:
             Write-Error "Windows release must contain only dist\windows\MTDSubtitleApp.exe."
           }
 
-      - name: Collect macOS executable
+      - name: Collect macOS app bundle
         if: matrix.platform == 'macos'
         run: |
           mkdir -p release-assets
-          cp dist/macos/MTDSubtitleApp.app/Contents/MacOS/MTDSubtitleApp "release-assets/${{ matrix.asset_name }}"
-          chmod +x "release-assets/${{ matrix.asset_name }}"
+          ditto -c -k --keepParent dist/macos/MTDSubtitleApp.app "release-assets/${{ matrix.asset_name }}"
 
       - name: Collect Linux executable
         if: matrix.platform == 'linux'
