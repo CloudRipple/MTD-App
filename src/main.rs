@@ -15,6 +15,7 @@ mod secret_store;
 mod subtitles;
 mod theme;
 mod ui;
+mod video_preview;
 
 use app::MtdApp;
 

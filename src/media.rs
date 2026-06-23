@@ -6,6 +6,13 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 
+#[derive(Clone, Debug)]
+pub(crate) struct PreviewFrame {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) rgb: Vec<u8>,
+}
+
 pub(crate) fn extract_audio(video_path: &Path, audio_path: &Path) -> Result<()> {
     let input = path_arg(video_path);
     let output = path_arg(audio_path);
@@ -77,6 +84,76 @@ pub(crate) fn has_video_stream(media_path: &Path) -> Result<bool> {
     Ok(stderr
         .lines()
         .any(|line| line.contains("Stream #") && line.contains("Video:")))
+}
+
+pub(crate) fn media_duration(media_path: &Path) -> Result<Option<f64>> {
+    let ffmpeg =
+        find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
+    let output = Command::new(ffmpeg)
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(path_arg(media_path))
+        .output()
+        .context("读取媒体时长失败")?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(parse_duration(&stderr))
+}
+
+pub(crate) fn render_subtitle_preview_frame(
+    video_path: &Path,
+    srt_path: &Path,
+    time_seconds: f64,
+    width: usize,
+    height: usize,
+    options: &SubtitleBurnOptions,
+) -> Result<PreviewFrame> {
+    let ffmpeg =
+        find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
+    let input = path_arg(video_path);
+    let subtitle_filter = subtitle_filter(srt_path, options);
+    let filter = format!(
+        "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
+    );
+    let output = Command::new(ffmpeg)
+        .arg("-hide_banner")
+        .arg("-ss")
+        .arg(format!("{:.3}", time_seconds.max(0.0)))
+        .arg("-i")
+        .arg(input)
+        .arg("-frames:v")
+        .arg("1")
+        .arg("-vf")
+        .arg(filter)
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-pix_fmt")
+        .arg("rgb24")
+        .arg("pipe:1")
+        .output()
+        .context("渲染预览帧失败")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("预览帧渲染失败：{}", stderr.trim()));
+    }
+
+    let expected_len = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(3))
+        .ok_or_else(|| anyhow!("预览帧尺寸过大"))?;
+    if output.stdout.len() != expected_len {
+        return Err(anyhow!(
+            "预览帧尺寸异常：预期 {} 字节，实际 {} 字节",
+            expected_len,
+            output.stdout.len()
+        ));
+    }
+
+    Ok(PreviewFrame {
+        width,
+        height,
+        rgb: output.stdout,
+    })
 }
 
 fn burn_subtitle_commands(
@@ -239,6 +316,25 @@ fn path_arg(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
+fn parse_duration(stderr: &str) -> Option<f64> {
+    let marker = "Duration:";
+    let start = stderr.find(marker)? + marker.len();
+    let value = stderr[start..].split(',').next()?.trim();
+    parse_duration_value(value)
+}
+
+fn parse_duration_value(value: &str) -> Option<f64> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    let [hours, minutes, seconds] = parts.as_slice() else {
+        return None;
+    };
+    let hours = hours.trim().parse::<f64>().ok()?;
+    let minutes = minutes.trim().parse::<f64>().ok()?;
+    let seconds = seconds.trim().parse::<f64>().ok()?;
+    let duration = hours * 3600.0 + minutes * 60.0 + seconds;
+    duration.is_finite().then_some(duration.max(0.0))
+}
+
 fn subtitle_filter(srt_path: &Path, options: &SubtitleBurnOptions) -> String {
     let mut filter = format!("subtitles='{}'", escape_subtitle_filter_path(srt_path));
     if let Some(fonts_dir) = options.fonts_dir.as_deref() {
@@ -344,6 +440,13 @@ mod tests {
             filter,
             "subtitles='/tmp/captions.srt':force_style='FontSize=18'"
         );
+    }
+
+    #[test]
+    fn parses_ffmpeg_duration_line() {
+        let stderr = "Input #0, mov,mp4,m4a,3gp,3g2,mj2\n  Duration: 00:01:02.540, start: 0.000000, bitrate: 1000 kb/s";
+
+        assert_eq!(parse_duration(stderr), Some(62.54));
     }
 
     fn has_arg_pair(args: &[String], key: &str, value: &str) -> bool {

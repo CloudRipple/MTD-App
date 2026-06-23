@@ -18,6 +18,7 @@ use crate::{
     secret_store::{self, ApiKeyStorage},
     subtitles::{render_srt, write_srt, write_vtt},
     theme::CANVAS,
+    video_preview::VideoPreview,
 };
 
 pub(crate) struct MtdApp {
@@ -39,6 +40,7 @@ pub(crate) struct MtdApp {
     pub(crate) api_key_store_error: bool,
     pub(crate) model_picker_open: bool,
     pub(crate) preview_mode: PreviewMode,
+    pub(crate) video_preview: VideoPreview,
     pub(crate) speaker_names: BTreeMap<String, String>,
     pub(crate) time_edits: BTreeMap<usize, (String, String)>,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
@@ -96,6 +98,7 @@ impl Default for MtdApp {
             api_key_store_error,
             model_picker_open: false,
             preview_mode: PreviewMode::Rendered,
+            video_preview: VideoPreview::default(),
             speaker_names: BTreeMap::new(),
             time_edits: BTreeMap::new(),
             job: Arc::new(Mutex::new(JobSnapshot::default())),
@@ -127,7 +130,7 @@ impl eframe::App for MtdApp {
                 ui.add_space(10.0);
                 self.render_workspace(ui, &snapshot);
                 ui.add_space(12.0);
-                self.render_preview(ui, &snapshot);
+                self.render_review_area(ui, &snapshot);
             });
 
         if self.running {
@@ -135,6 +138,9 @@ impl eframe::App for MtdApp {
         }
         if self.burning {
             ctx.request_repaint_after(Duration::from_millis(250));
+        }
+        if self.video_preview.is_playing() {
+            ctx.request_repaint_after(Duration::from_millis(80));
         }
     }
 }
@@ -212,6 +218,7 @@ impl MtdApp {
 
         self.save_current_settings();
         self.running = true;
+        self.video_preview.reset();
         self.speaker_names.clear();
         self.time_edits.clear();
         {
@@ -314,6 +321,7 @@ impl MtdApp {
             }
         }
         self.speaker_names.clear();
+        self.video_preview.invalidate();
 
         sync_subtitle_outputs(&mut state);
     }
@@ -336,9 +344,11 @@ impl MtdApp {
         segment.speaker = speaker.trim().to_owned();
         segment.text = text;
         sync_subtitle_outputs(&mut state);
+        drop(state);
+        self.video_preview.invalidate();
     }
 
-    fn subtitle_burn_options(&self) -> SubtitleBurnOptions {
+    pub(crate) fn subtitle_burn_options(&self) -> SubtitleBurnOptions {
         let font =
             fonts::selected_font(&self.subtitle_fonts, self.selected_subtitle_font.as_deref());
         SubtitleBurnOptions {

@@ -13,9 +13,9 @@ use crate::{
         ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
         preview_frame,
     },
+    video_preview::{VideoPreview, active_segment_at, fallback_duration},
 };
 
-const PREVIEW_FRAME_VERTICAL_INSET: f32 = 28.0;
 const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
 const PREVIEW_BORDER_RESERVE: f32 = 2.0;
 const INLINE_FONT_ROW_HEIGHT: f32 = 24.0;
@@ -179,6 +179,7 @@ impl MtdApp {
                     if font_option(ui, "系统默认", self.selected_subtitle_font.is_none()).clicked()
                     {
                         self.selected_subtitle_font = None;
+                        self.video_preview.invalidate();
                         self.save_current_settings();
                         ui.close();
                     }
@@ -197,6 +198,7 @@ impl MtdApp {
                                     self.selected_subtitle_font.as_deref() == Some(&font_name);
                                 if font_option(ui, &font_name, selected).clicked() {
                                     self.selected_subtitle_font = Some(font_name);
+                                    self.video_preview.invalidate();
                                     self.save_current_settings();
                                     ui.close();
                                 }
@@ -212,6 +214,7 @@ impl MtdApp {
             if let Ok(size) = trimmed.parse::<u32>() {
                 if (12..=96).contains(&size) {
                     self.subtitle_font_size = size;
+                    self.video_preview.invalidate();
                     self.save_current_settings();
                 }
             }
@@ -223,6 +226,7 @@ impl MtdApp {
                 .clamp(12, 96);
             self.subtitle_font_size = size;
             self.subtitle_font_size_text = size.to_string();
+            self.video_preview.invalidate();
             self.save_current_settings();
         }
     }
@@ -489,12 +493,77 @@ impl MtdApp {
         });
     }
 
-    pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-        let preview_height = ui.available_height().max(180.0);
-        preview_frame().show(ui, |ui| {
-            ui.set_min_height(
-                (preview_height - PREVIEW_FRAME_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(156.0),
+    pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        let available = ui.available_width();
+        let video_width = (available * 0.53).clamp(520.0, 740.0);
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(video_width, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| self.render_video_preview(ui, snapshot),
             );
+            ui.add_space(12.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| self.render_preview(ui, snapshot),
+            );
+        });
+    }
+
+    fn render_video_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        preview_frame().show(ui, |ui| {
+            let label = if self.video_preview.is_playing() {
+                "播放中"
+            } else if self.video_preview.has_texture() {
+                "可检查"
+            } else {
+                "待预览"
+            };
+            video_preview_header(ui, label);
+            ui.add_space(8.0);
+
+            let (Some(video_path), Some(srt_path)) = (
+                snapshot.input_video_path.as_deref(),
+                snapshot.srt_path.as_deref(),
+            ) else {
+                video_empty_state(ui, "当前任务没有可播放的视频预览");
+                return;
+            };
+            if snapshot.segments.is_empty() {
+                video_empty_state(ui, "生成字幕后可在这里播放带字幕的视频");
+                return;
+            }
+
+            self.video_preview
+                .prepare(video_path, srt_path, &snapshot.segments);
+            let fallback_duration = fallback_duration(&snapshot.segments);
+            self.video_preview.update_playback(fallback_duration);
+            self.video_preview.sync_frame(ui.ctx());
+            self.video_preview
+                .maybe_request_frame(ui.ctx(), self.subtitle_burn_options());
+
+            let current_time = self.video_preview.current_time();
+            let duration = self.video_preview.duration().unwrap_or(fallback_duration);
+            let active_segment = active_segment_at(&snapshot.segments, current_time);
+
+            let video_width = ui.available_width();
+            let available_video_height = (ui.available_height() - 116.0).max(160.0);
+            let video_height = ((video_width / 16.0) * 9.0)
+                .min(available_video_height)
+                .max(160.0);
+            video_surface(ui, &self.video_preview, video_width, video_height);
+
+            ui.add_space(8.0);
+            video_controls(ui, &mut self.video_preview, duration);
+
+            ui.add_space(8.0);
+            current_subtitle_card(ui, active_segment, current_time);
+        });
+    }
+
+    pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        preview_frame().show(ui, |ui| {
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), 28.0),
                 egui::Layout::left_to_right(egui::Align::Center),
@@ -524,7 +593,7 @@ impl MtdApp {
                 },
             );
             ui.add_space(6.0);
-            let content_height = (ui.available_height() - PREVIEW_BORDER_RESERVE).max(112.0);
+            let content_height = (ui.available_height() - 8.0).max(112.0);
 
             if has_subtitle_preview(&snapshot.preview) {
                 match self.preview_mode {
@@ -1212,6 +1281,232 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
                 });
             });
         });
+}
+
+fn video_empty_state(ui: &mut egui::Ui, message: &str) {
+    let height = (ui.available_width() / 16.0 * 9.0)
+        .min((ui.available_height() - 2.0).max(160.0))
+        .max(160.0);
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(9),
+        egui::Color32::from_rgb(18, 27, 34),
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 43, 51)),
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        message,
+        egui::FontId::proportional(15.0),
+        egui::Color32::from_rgb(190, 203, 211),
+    );
+}
+
+fn video_preview_header(ui: &mut egui::Ui, badge: &str) {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
+    ui.painter().text(
+        egui::pos2(rect.left(), rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "视频预览",
+        egui::FontId::proportional(16.0),
+        INK,
+    );
+
+    let badge_width = badge_text_width(badge) + 24.0;
+    let badge_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.right() - badge_width * 0.5, rect.center().y),
+        egui::vec2(badge_width, 30.0),
+    );
+    ui.painter().rect(
+        badge_rect,
+        egui::CornerRadius::same(15),
+        ACCENT_SOFT,
+        egui::Stroke::NONE,
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        badge_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        badge,
+        egui::FontId::proportional(13.0),
+        ACCENT_DARK,
+    );
+}
+
+fn badge_text_width(text: &str) -> f32 {
+    text.chars()
+        .map(|character| if character.is_ascii() { 8.0 } else { 13.0 })
+        .sum::<f32>()
+        .max(42.0)
+}
+
+fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(9),
+        egui::Color32::from_rgb(15, 23, 29),
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 43, 51)),
+        egui::StrokeKind::Outside,
+    );
+
+    if let Some(texture) = preview.texture() {
+        let image_rect = fit_texture_rect(rect, texture.size_vec2());
+        ui.painter().image(
+            texture.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "正在准备预览",
+            egui::FontId::proportional(15.0),
+            egui::Color32::from_rgb(190, 203, 211),
+        );
+    }
+
+    if preview.is_pending() {
+        let badge_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + 12.0, rect.top() + 12.0),
+            egui::vec2(74.0, 26.0),
+        );
+        ui.painter().rect(
+            badge_rect,
+            egui::CornerRadius::same(13),
+            egui::Color32::from_rgba_premultiplied(18, 27, 34, 210),
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(49, 67, 77)),
+            egui::StrokeKind::Outside,
+        );
+        ui.painter().text(
+            badge_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "渲染中",
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_rgb(214, 226, 232),
+        );
+    }
+
+    if let Some(error) = preview.last_error() {
+        let message = compact_error(&error);
+        ui.painter().text(
+            egui::pos2(rect.center().x, rect.bottom() - 18.0),
+            egui::Align2::CENTER_CENTER,
+            message,
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_rgb(255, 198, 190),
+        );
+    }
+}
+
+fn video_controls(ui: &mut egui::Ui, preview: &mut VideoPreview, duration: f64) {
+    ui.horizontal(|ui| {
+        let label = if preview.is_playing() {
+            "暂停"
+        } else {
+            "播放"
+        };
+        if ui
+            .add_sized([58.0, 30.0], egui::Button::new(label))
+            .clicked()
+        {
+            preview.toggle_playing();
+        }
+
+        ui.label(
+            egui::RichText::new(display_time(preview.current_time()))
+                .monospace()
+                .size(12.0)
+                .color(MUTED),
+        );
+
+        let mut time = preview.current_time();
+        let slider_response = ui.add_sized(
+            [ui.available_width() - 72.0, 24.0],
+            egui::Slider::new(&mut time, 0.0..=duration.max(0.1))
+                .show_value(false)
+                .clamping(egui::SliderClamping::Always),
+        );
+        if slider_response.changed() {
+            preview.seek(time);
+        }
+
+        ui.label(
+            egui::RichText::new(display_time(duration))
+                .monospace()
+                .size(12.0)
+                .color(FAINT),
+        );
+    });
+}
+
+fn current_subtitle_card(ui: &mut egui::Ui, segment: Option<&Segment>, current_time: f64) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(12, 9))
+        .show(ui, |ui| {
+            ui.set_width((ui.available_width() - 24.0).max(0.0));
+            if let Some(segment) = segment {
+                ui.horizontal(|ui| {
+                    compact_speaker_badge(ui, &segment.speaker);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} – {}",
+                            display_time(segment.start),
+                            display_time(segment.end)
+                        ))
+                        .monospace()
+                        .size(12.0)
+                        .color(FAINT),
+                    );
+                });
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
+            } else {
+                ui.label(
+                    egui::RichText::new(format!("当前时间 {}", display_time(current_time)))
+                        .monospace()
+                        .size(12.0)
+                        .color(FAINT),
+                );
+                ui.label(egui::RichText::new("无匹配字幕").size(14.0).color(MUTED));
+            }
+        });
+}
+
+fn fit_texture_rect(container: egui::Rect, image_size: egui::Vec2) -> egui::Rect {
+    let image_aspect = if image_size.y > 0.0 {
+        image_size.x / image_size.y
+    } else {
+        16.0 / 9.0
+    };
+    let container_aspect = container.width() / container.height().max(1.0);
+    let size = if container_aspect > image_aspect {
+        egui::vec2(container.height() * image_aspect, container.height())
+    } else {
+        egui::vec2(container.width(), container.width() / image_aspect)
+    };
+    egui::Rect::from_center_size(container.center(), size)
+}
+
+fn compact_error(error: &str) -> String {
+    let trimmed = error.trim();
+    let chars = trimmed.chars().collect::<Vec<_>>();
+    if chars.len() > 64 {
+        format!("{}...", chars.iter().take(64).collect::<String>())
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 fn output_chip(ui: &mut egui::Ui, label: &str) {
