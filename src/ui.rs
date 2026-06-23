@@ -105,9 +105,14 @@ impl MtdApp {
             {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.output_dir = path;
+                    self.save_current_settings();
                 }
             }
         });
+
+        ui.add_space(8.0);
+        field_label(ui, "字幕字体");
+        self.render_font_selector(ui);
 
         ui.add_space(8.0);
         let hint = if self.api_key.trim().is_empty() {
@@ -126,6 +131,73 @@ impl MtdApp {
                 "https://studio.mosi.cn/account/api-keys",
             );
         }
+        if self.settings_store_error {
+            if let Some(message) = &self.settings_store_message {
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new(message).size(12.0).color(DANGER));
+            }
+        }
+    }
+
+    fn render_font_selector(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let text = self
+                .selected_subtitle_font
+                .as_deref()
+                .filter(|font| !font.trim().is_empty())
+                .unwrap_or("系统默认");
+            let pill_width = (ui.available_width() - 124.0).max(160.0);
+            font_pill(ui, text, pill_width);
+
+            let response = ui.add_sized([92.0, 32.0], egui::Button::new("选择"));
+            egui::Popup::from_toggle_button_response(&response)
+                .width(360.0)
+                .gap(8.0)
+                .frame(settings_popup_frame())
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_min_width(360.0);
+                    ui.label(
+                        egui::RichText::new("添加字幕到视频时使用")
+                            .size(13.0)
+                            .strong()
+                            .color(INK),
+                    );
+                    ui.label(
+                        egui::RichText::new("从本机字体和随包字体中选择")
+                            .size(12.0)
+                            .color(FAINT),
+                    );
+
+                    ui.add_space(10.0);
+                    if font_option(ui, "系统默认", self.selected_subtitle_font.is_none()).clicked()
+                    {
+                        self.selected_subtitle_font = None;
+                        self.save_current_settings();
+                        ui.close();
+                    }
+
+                    ui.add_space(4.0);
+                    let font_names = self
+                        .subtitle_fonts
+                        .iter()
+                        .map(|font| font.family.clone())
+                        .collect::<Vec<_>>();
+                    egui::ScrollArea::vertical()
+                        .max_height(220.0)
+                        .show(ui, |ui| {
+                            for font_name in font_names {
+                                let selected =
+                                    self.selected_subtitle_font.as_deref() == Some(&font_name);
+                                if font_option(ui, &font_name, selected).clicked() {
+                                    self.selected_subtitle_font = Some(font_name);
+                                    self.save_current_settings();
+                                    ui.close();
+                                }
+                            }
+                        });
+                });
+        });
     }
 
     fn render_settings_menu(&mut self, ui: &mut egui::Ui) {
@@ -207,6 +279,7 @@ impl MtdApp {
                         if model_option(ui, model, self.model == model).clicked() {
                             self.model = model.to_owned();
                             self.model_picker_open = false;
+                            self.save_current_settings();
                         }
                     }
                 });
@@ -224,18 +297,26 @@ impl MtdApp {
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add(
+                        let response = ui.add(
                             egui::DragValue::new(&mut self.max_tokens)
                                 .range(1_000..=96_000)
                                 .speed(1000),
                         );
+                        if response.changed() {
+                            self.save_current_settings();
+                        }
                     });
                 });
             });
 
             ui.add_space(10.0);
             setting_block(ui, |ui| {
-                ui.checkbox(&mut self.include_speaker, "保留说话人");
+                if ui
+                    .checkbox(&mut self.include_speaker, "保留说话人")
+                    .changed()
+                {
+                    self.save_current_settings();
+                }
             });
         });
     }
@@ -609,6 +690,18 @@ fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool) {
         });
 }
 
+fn font_pill(ui: &mut egui::Ui, text: &str, width: f32) {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(246, 249, 250))
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(10, 7))
+        .show(ui, |ui| {
+            ui.set_width((width - 20.0).max(120.0));
+            ui.label(egui::RichText::new(text).color(INK));
+        });
+}
+
 fn settings_popup_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(253, 254, 254))
@@ -801,6 +894,37 @@ fn model_option(ui: &mut egui::Ui, model: &str, selected: bool) -> egui::Respons
     if selected {
         ui.painter().text(
             egui::pos2(rect.right() - 12.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            "已选",
+            egui::FontId::proportional(12.0),
+            ACCENT_DARK,
+        );
+    }
+    response
+}
+
+fn font_option(ui: &mut egui::Ui, font: &str, selected: bool) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 34.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let fill = if selected {
+        ACCENT_SOFT
+    } else if response.hovered() {
+        egui::Color32::from_rgb(247, 250, 251)
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(8), fill);
+    ui.painter().text(
+        egui::pos2(rect.left() + 10.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        font,
+        egui::FontId::proportional(13.0),
+        if selected { ACCENT_DARK } else { INK },
+    );
+    if selected {
+        ui.painter().text(
+            egui::pos2(rect.right() - 10.0, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             "已选",
             egui::FontId::proportional(12.0),

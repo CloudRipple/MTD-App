@@ -2,7 +2,9 @@
 
 mod api;
 mod app;
+mod app_settings;
 mod config;
+mod fonts;
 mod job;
 mod media;
 mod media_types;

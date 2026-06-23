@@ -14,8 +14,19 @@ pub(crate) fn extract_audio(video_path: &Path, audio_path: &Path) -> Result<()> 
     ]))
 }
 
-pub(crate) fn burn_subtitles(video_path: &Path, srt_path: &Path, output_path: &Path) -> Result<()> {
-    let subtitle_filter = format!("subtitles='{}'", escape_subtitle_filter_path(srt_path));
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SubtitleBurnOptions {
+    pub(crate) font_family: Option<String>,
+    pub(crate) fonts_dir: Option<PathBuf>,
+}
+
+pub(crate) fn burn_subtitles(
+    video_path: &Path,
+    srt_path: &Path,
+    output_path: &Path,
+    options: SubtitleBurnOptions,
+) -> Result<()> {
+    let subtitle_filter = subtitle_filter(srt_path, &options);
     let input = path_arg(video_path);
     let output = path_arg(output_path);
     let mut errors = Vec::new();
@@ -217,11 +228,40 @@ fn path_arg(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
+fn subtitle_filter(srt_path: &Path, options: &SubtitleBurnOptions) -> String {
+    let mut filter = format!("subtitles='{}'", escape_subtitle_filter_path(srt_path));
+    if let Some(fonts_dir) = options.fonts_dir.as_deref() {
+        filter.push_str(&format!(
+            ":fontsdir='{}'",
+            escape_subtitle_filter_path(fonts_dir)
+        ));
+    }
+    if let Some(font_family) = options
+        .font_family
+        .as_deref()
+        .map(str::trim)
+        .filter(|font| !font.is_empty())
+    {
+        filter.push_str(&format!(
+            ":force_style='FontName={}'",
+            escape_subtitle_force_style(font_family)
+        ));
+    }
+    filter
+}
+
 fn escape_subtitle_filter_path(path: &Path) -> String {
     path.to_string_lossy()
         .replace('\\', "/")
         .replace(':', "\\:")
         .replace('\'', "\\'")
+}
+
+fn escape_subtitle_force_style(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace(',', "\\,")
 }
 
 #[cfg(test)]
@@ -255,6 +295,21 @@ mod tests {
         assert!(has_platform_h264);
         assert!(has_fallback);
         assert!(copies_audio);
+    }
+
+    #[test]
+    fn subtitle_filter_can_force_selected_font() {
+        let options = SubtitleBurnOptions {
+            font_family: Some("HarmonyOS Sans SC".to_owned()),
+            fonts_dir: Some(PathBuf::from("/tmp/fonts")),
+        };
+
+        let filter = subtitle_filter(Path::new("/tmp/captions.srt"), &options);
+
+        assert_eq!(
+            filter,
+            "subtitles='/tmp/captions.srt':fontsdir='/tmp/fonts':force_style='FontName=HarmonyOS Sans SC'"
+        );
     }
 
     fn has_arg_pair(args: &[String], key: &str, value: &str) -> bool {

@@ -9,11 +9,12 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    config::DEFAULT_MODEL,
-    media::burn_subtitles,
+    app_settings::{self, AppSettings},
+    config::{DEFAULT_MODEL, MODELS},
+    fonts::{self, SubtitleFont},
+    media::{SubtitleBurnOptions, burn_subtitles},
     models::{JobSnapshot, PreviewMode},
     pipeline::run_job,
-    platform::default_output_dir,
     secret_store::{self, ApiKeyStorage},
     subtitles::{render_srt, write_srt, write_vtt},
     theme::CANVAS,
@@ -26,6 +27,10 @@ pub(crate) struct MtdApp {
     pub(crate) model: String,
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
+    pub(crate) subtitle_fonts: Vec<SubtitleFont>,
+    pub(crate) selected_subtitle_font: Option<String>,
+    pub(crate) settings_store_message: Option<String>,
+    pub(crate) settings_store_error: bool,
     pub(crate) remember_api_key: bool,
     pub(crate) saved_api_key: Option<String>,
     pub(crate) api_key_store_message: Option<String>,
@@ -41,6 +46,16 @@ pub(crate) struct MtdApp {
 
 impl Default for MtdApp {
     fn default() -> Self {
+        let app_settings = match app_settings::load_app_settings() {
+            Ok(settings) => settings,
+            Err(error) => {
+                eprintln!("读取应用设置失败：{error}");
+                AppSettings::default()
+            }
+        };
+        let subtitle_fonts = fonts::discover_subtitle_fonts();
+        let selected_subtitle_font =
+            choose_subtitle_font(&subtitle_fonts, app_settings.subtitle_font.as_deref());
         let (api_key, remember_api_key, saved_api_key, api_key_store_message, api_key_store_error) =
             match secret_store::load_api_key() {
                 Ok(Some(api_key)) => (
@@ -61,11 +76,15 @@ impl Default for MtdApp {
             };
         Self {
             video_path: None,
-            output_dir: default_output_dir(),
+            output_dir: app_settings.output_dir,
             api_key,
-            model: DEFAULT_MODEL.to_owned(),
-            max_tokens: 48_000,
-            include_speaker: true,
+            model: valid_model_or_default(&app_settings.model),
+            max_tokens: app_settings.max_tokens,
+            include_speaker: app_settings.include_speaker,
+            subtitle_fonts,
+            selected_subtitle_font,
+            settings_store_message: None,
+            settings_store_error: false,
             remember_api_key,
             saved_api_key,
             api_key_store_message,
@@ -154,6 +173,26 @@ impl MtdApp {
         }
     }
 
+    pub(crate) fn save_current_settings(&mut self) {
+        let settings = AppSettings {
+            output_dir: self.output_dir.clone(),
+            model: self.model.clone(),
+            max_tokens: self.max_tokens.clamp(1_000, 96_000),
+            include_speaker: self.include_speaker,
+            subtitle_font: self.selected_subtitle_font.clone(),
+        };
+        match app_settings::save_app_settings(&settings) {
+            Ok(()) => {
+                self.settings_store_message = Some("设置已保存到本机".to_owned());
+                self.settings_store_error = false;
+            }
+            Err(error) => {
+                self.settings_store_message = Some(format!("保存设置失败：{error}"));
+                self.settings_store_error = true;
+            }
+        }
+    }
+
     pub(crate) fn start_job(&mut self) {
         let Some(video_path) = self.video_path.clone() else {
             return;
@@ -165,6 +204,7 @@ impl MtdApp {
         let include_speaker = self.include_speaker;
         let job = Arc::clone(&self.job);
 
+        self.save_current_settings();
         self.running = true;
         self.speaker_names.clear();
         self.time_edits.clear();
@@ -223,6 +263,7 @@ impl MtdApp {
             return;
         };
         let job = Arc::clone(&self.job);
+        let burn_options = self.subtitle_burn_options();
 
         self.burning = true;
         {
@@ -232,7 +273,8 @@ impl MtdApp {
         }
 
         thread::spawn(move || {
-            let result = burn_subtitles(&input_video_path, &srt_path, &subtitled_path);
+            let result =
+                burn_subtitles(&input_video_path, &srt_path, &subtitled_path, burn_options);
             let mut state = job.lock().expect("job lock");
             match result {
                 Ok(()) => {
@@ -289,10 +331,40 @@ impl MtdApp {
         segment.text = text;
         sync_subtitle_outputs(&mut state);
     }
+
+    fn subtitle_burn_options(&self) -> SubtitleBurnOptions {
+        let font =
+            fonts::selected_font(&self.subtitle_fonts, self.selected_subtitle_font.as_deref());
+        SubtitleBurnOptions {
+            font_family: self.selected_subtitle_font.clone(),
+            fonts_dir: font.and_then(|font| font.source_dir.clone()),
+        }
+    }
 }
 
 fn saved_message(storage: ApiKeyStorage) -> String {
     format!("已保存到{}，下次打开会自动填入", storage.label())
+}
+
+fn valid_model_or_default(model: &str) -> String {
+    if MODELS.contains(&model) {
+        model.to_owned()
+    } else {
+        DEFAULT_MODEL.to_owned()
+    }
+}
+
+fn choose_subtitle_font(fonts: &[SubtitleFont], saved: Option<&str>) -> Option<String> {
+    if let Some(saved) = saved {
+        if fonts.iter().any(|font| font.family == saved) {
+            return Some(saved.to_owned());
+        }
+    }
+    fonts
+        .iter()
+        .find(|font| font.family == "HarmonyOS Sans SC")
+        .or_else(|| fonts.first())
+        .map(|font| font.family.clone())
 }
 
 fn sync_subtitle_outputs(state: &mut JobSnapshot) {
