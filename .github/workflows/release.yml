@@ -109,6 +109,19 @@ jobs:
           MSYS2_PATH_TYPE: inherit
         run: .\scripts\build-windows.ps1
 
+      - name: Verify Windows single-file package
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          if (!(Test-Path dist\windows\MTDSubtitleApp.exe)) {
+            Write-Error "Missing Windows release executable."
+          }
+          $entries = Get-ChildItem dist\windows
+          if ($entries.Count -ne 1 -or $entries[0].Name -ne "MTDSubtitleApp.exe") {
+            $entries | Format-Table Name,Length,LastWriteTime | Out-String | Write-Host
+            Write-Error "Windows release must contain only dist\windows\MTDSubtitleApp.exe."
+          }
+
       - name: Collect macOS executable
         if: matrix.platform == 'macos'
         run: |
