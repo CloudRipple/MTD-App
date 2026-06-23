@@ -18,6 +18,7 @@ use crate::{
 const PREVIEW_FRAME_VERTICAL_INSET: f32 = 28.0;
 const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
 const PREVIEW_BORDER_RESERVE: f32 = 2.0;
+const INLINE_FONT_ROW_HEIGHT: f32 = 24.0;
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
@@ -111,7 +112,12 @@ impl MtdApp {
         });
 
         ui.add_space(8.0);
-        field_label(ui, "字幕字体");
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            inline_field_label(ui, "字幕字体");
+            let response = inline_font_size_control(ui, &mut self.subtitle_font_size_text);
+            self.commit_subtitle_font_size(response.changed(), response.lost_focus());
+        });
         self.render_font_selector(ui);
 
         ui.add_space(8.0);
@@ -198,6 +204,27 @@ impl MtdApp {
                         });
                 });
         });
+    }
+
+    fn commit_subtitle_font_size(&mut self, changed: bool, finished: bool) {
+        let trimmed = self.subtitle_font_size_text.trim().to_owned();
+        if changed {
+            if let Ok(size) = trimmed.parse::<u32>() {
+                if (12..=96).contains(&size) {
+                    self.subtitle_font_size = size;
+                    self.save_current_settings();
+                }
+            }
+        }
+        if finished {
+            let size = trimmed
+                .parse::<u32>()
+                .unwrap_or(self.subtitle_font_size)
+                .clamp(12, 96);
+            self.subtitle_font_size = size;
+            self.subtitle_font_size_text = size.to_string();
+            self.save_current_settings();
+        }
     }
 
     fn render_settings_menu(&mut self, ui: &mut egui::Ui) {
@@ -672,6 +699,14 @@ fn field_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).size(13.0).strong().color(MUTED));
 }
 
+fn inline_field_label(ui: &mut egui::Ui, text: &str) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(56.0, INLINE_FONT_ROW_HEIGHT),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| field_label(ui, text),
+    );
+}
+
 fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool) {
     let fill = if selected {
         egui::Color32::from_rgb(246, 249, 250)
@@ -700,6 +735,60 @@ fn font_pill(ui: &mut egui::Ui, text: &str, width: f32) {
             ui.set_width((width - 20.0).max(120.0));
             ui.label(egui::RichText::new(text).color(INK));
         });
+}
+
+fn inline_font_size_control(ui: &mut egui::Ui, value: &mut String) -> egui::Response {
+    ui.allocate_ui_with_layout(
+        egui::vec2(80.0, INLINE_FONT_ROW_HEIGHT),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let response = compact_font_size_input(ui, value);
+            ui.add_sized(
+                [16.0, INLINE_FONT_ROW_HEIGHT],
+                egui::Label::new(egui::RichText::new("号").size(13.0).strong().color(MUTED)),
+            );
+            response
+        },
+    )
+    .inner
+}
+
+fn compact_font_size_input(ui: &mut egui::Ui, value: &mut String) -> egui::Response {
+    let (rect, frame_response) = ui.allocate_exact_size(
+        egui::vec2(44.0, INLINE_FONT_ROW_HEIGHT),
+        egui::Sense::click(),
+    );
+
+    ui.painter().rect(
+        rect,
+        6.0,
+        egui::Color32::from_rgb(252, 254, 254),
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
+
+    let inner_rect = rect.shrink2(egui::vec2(7.0, 2.0));
+    let mut child_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt("subtitle-font-size-input")
+            .max_rect(inner_rect)
+            .layout(egui::Layout::centered_and_justified(
+                egui::Direction::LeftToRight,
+            )),
+    );
+    let response = child_ui.add_sized(
+        inner_rect.size(),
+        egui::TextEdit::singleline(value)
+            .font(egui::TextStyle::Button)
+            .frame(false)
+            .hint_text("24"),
+    );
+    if frame_response.clicked() {
+        response.request_focus();
+    }
+
+    frame_response.union(response)
 }
 
 fn settings_popup_frame() -> egui::Frame {
