@@ -1130,7 +1130,7 @@ fn segment_row(
             ui.set_width((ui.available_width() - 24.0).max(0.0));
             ui.set_min_height(50.0);
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.spacing_mut().item_spacing.x = 8.0;
                 ui.add_sized(
                     [30.0, 24.0],
                     egui::Label::new(
@@ -1142,7 +1142,7 @@ fn segment_row(
                     ),
                 );
                 time_changed |= editable_time_field(ui, &mut start_text).changed();
-                ui.label(egui::RichText::new("-").monospace().size(12.0).color(FAINT));
+                time_separator(ui);
                 time_changed |= editable_time_field(ui, &mut end_text).changed();
                 content_changed |= editable_speaker_field(ui, &mut speaker).changed();
                 ui.add_space(6.0);
@@ -1212,7 +1212,19 @@ fn editable_time_field(ui: &mut egui::Ui, value: &mut String) -> egui::Response 
         .inner
 }
 
+fn time_separator(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 30.0), egui::Sense::hover());
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.center().y - 1.0),
+        egui::Align2::CENTER_CENTER,
+        "–",
+        egui::FontId::proportional(13.0),
+        FAINT,
+    );
+}
+
 fn editable_speaker_field(ui: &mut egui::Ui, speaker: &mut String) -> egui::Response {
+    let width = speaker_field_width(speaker);
     egui::Frame::NONE
         .fill(ACCENT_SOFT)
         .stroke(egui::Stroke::new(
@@ -1223,13 +1235,21 @@ fn editable_speaker_field(ui: &mut egui::Ui, speaker: &mut String) -> egui::Resp
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
             ui.add_sized(
-                [72.0, 20.0],
+                [width, 20.0],
                 egui::TextEdit::singleline(speaker)
                     .frame(false)
                     .hint_text("说话人"),
             )
         })
         .inner
+}
+
+fn speaker_field_width(speaker: &str) -> f32 {
+    let estimated_text_width = speaker
+        .chars()
+        .map(|character| if character.is_ascii() { 8.0 } else { 14.0 })
+        .sum::<f32>();
+    estimated_text_width.clamp(32.0, 112.0)
 }
 
 fn editable_subtitle_field(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
@@ -1361,12 +1381,23 @@ fn compact_model_name(model: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_edit_time;
+    use super::{parse_edit_time, speaker_field_width};
 
     #[test]
     fn parses_subtitle_time_editor_values() {
         assert_eq!(parse_edit_time("00:02.540"), Some(2.54));
         assert_eq!(parse_edit_time("01:00:02.500"), Some(3602.5));
         assert_eq!(parse_edit_time("2.5"), Some(2.5));
+    }
+
+    #[test]
+    fn speaker_field_width_adapts_to_label_length() {
+        let short_label = speaker_field_width("S01");
+        let full_name = speaker_field_width("张三丰");
+        let long_name = speaker_field_width("Very long speaker display name");
+
+        assert!(short_label < full_name);
+        assert!(full_name < long_name);
+        assert_eq!(long_name, 112.0);
     }
 }
