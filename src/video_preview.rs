@@ -104,7 +104,7 @@ impl VideoPreview {
         self.cache.lock().expect("preview cache lock").error.clone()
     }
 
-    pub(crate) fn prepare(&mut self, video_path: &Path, srt_path: &Path, segments: &[Segment]) {
+    pub(crate) fn prepare(&mut self, video_path: &Path, srt_path: &Path, _segments: &[Segment]) {
         let next_source = PreviewSource {
             video_path: video_path.to_path_buf(),
             srt_path: srt_path.to_path_buf(),
@@ -119,7 +119,7 @@ impl VideoPreview {
             .ok()
             .flatten()
             .unwrap_or(FALLBACK_PREVIEW_FPS);
-        self.current_time = first_subtitle_time(segments);
+        self.current_time = 0.0;
         self.playing = false;
         self.last_tick = None;
         self.texture = None;
@@ -413,8 +413,4 @@ fn distance_to_segment(segment: &Segment, time: f64) -> f64 {
     } else {
         0.0
     }
-}
-
-fn first_subtitle_time(segments: &[Segment]) -> f64 {
-    segments.first().map(|segment| segment.start).unwrap_or(0.0)
 }

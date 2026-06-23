@@ -20,10 +20,14 @@ const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
 const PREVIEW_BORDER_RESERVE: f32 = 2.0;
 const INLINE_FONT_ROW_HEIGHT: f32 = 24.0;
 const VIDEO_HEADER_HEIGHT: f32 = 30.0;
+const VIDEO_BUTTON_WIDTH: f32 = 58.0;
+const VIDEO_TIME_WIDTH: f32 = 76.0;
 const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
 const VIDEO_CURRENT_SUBTITLE_HEIGHT: f32 = 72.0;
 const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
     VIDEO_HEADER_HEIGHT + 8.0 + VIDEO_CONTROLS_HEIGHT + 8.0 + VIDEO_CURRENT_SUBTITLE_HEIGHT;
+const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
+const OUTPUT_CHIP_GAP: f32 = 12.0;
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
@@ -1293,13 +1297,7 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
                     .color(MUTED),
                 );
                 ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.add_space((ui.available_width() - 320.0).max(0.0) / 2.0);
-                    output_chip(ui, "SRT");
-                    output_chip(ui, "VTT");
-                    output_chip(ui, "TXT");
-                    output_chip(ui, "JSON");
-                });
+                output_chip_row(ui, &["SRT", "VTT", "TXT", "JSON"]);
             });
         });
 }
@@ -1435,44 +1433,127 @@ fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: 
 }
 
 fn video_controls(ui: &mut egui::Ui, preview: &mut VideoPreview, duration: f64) {
-    ui.horizontal(|ui| {
-        let label = if preview.is_playing() {
-            "暂停"
-        } else {
-            "播放"
-        };
-        if ui
-            .add_sized([58.0, 30.0], egui::Button::new(label))
-            .clicked()
-        {
-            preview.toggle_playing();
-        }
+    let row_width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        egui::vec2(row_width, VIDEO_CONTROLS_HEIGHT),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
 
-        ui.label(
-            egui::RichText::new(display_time(preview.current_time()))
-                .monospace()
-                .size(12.0)
-                .color(MUTED),
-        );
+            let label = if preview.is_playing() {
+                "暂停"
+            } else {
+                "播放"
+            };
+            if ui
+                .add_sized([VIDEO_BUTTON_WIDTH, 30.0], egui::Button::new(label))
+                .clicked()
+            {
+                preview.toggle_playing();
+            }
 
-        let mut time = preview.current_time();
-        let slider_response = ui.add_sized(
-            [ui.available_width() - 72.0, 24.0],
-            egui::Slider::new(&mut time, 0.0..=duration.max(0.1))
-                .show_value(false)
-                .clamping(egui::SliderClamping::Always),
-        );
-        if slider_response.changed() {
-            preview.seek(time);
-        }
+            time_text(
+                ui,
+                display_time(preview.current_time()),
+                VIDEO_TIME_WIDTH,
+                egui::Align2::RIGHT_CENTER,
+                MUTED,
+            );
 
-        ui.label(
-            egui::RichText::new(display_time(duration))
-                .monospace()
-                .size(12.0)
-                .color(FAINT),
+            let mut time = preview.current_time();
+            let scrubber_width =
+                (row_width - VIDEO_BUTTON_WIDTH - VIDEO_TIME_WIDTH * 2.0 - 8.0 * 3.0).max(120.0);
+            if video_scrubber(ui, &mut time, duration, scrubber_width).changed() {
+                preview.seek(time);
+            }
+
+            time_text(
+                ui,
+                display_time(duration),
+                VIDEO_TIME_WIDTH,
+                egui::Align2::LEFT_CENTER,
+                FAINT,
+            );
+        },
+    );
+}
+
+fn time_text(
+    ui: &mut egui::Ui,
+    text: String,
+    width: f32,
+    align: egui::Align2,
+    color: egui::Color32,
+) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(width, VIDEO_CONTROLS_HEIGHT),
+        egui::Sense::hover(),
+    );
+    let x = match align {
+        egui::Align2::RIGHT_CENTER => rect.right(),
+        egui::Align2::LEFT_CENTER => rect.left(),
+        _ => rect.center().x,
+    };
+    ui.painter().text(
+        egui::pos2(x, rect.center().y),
+        align,
+        text,
+        egui::FontId::monospace(12.0),
+        color,
+    );
+}
+
+fn video_scrubber(ui: &mut egui::Ui, time: &mut f64, duration: f64, width: f32) -> egui::Response {
+    let duration = duration.max(0.1);
+    let (rect, mut response) =
+        ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::click_and_drag());
+
+    if (response.dragged() || response.clicked())
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let progress = ((pointer.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+        *time = duration * progress as f64;
+        response.mark_changed();
+    }
+
+    let progress = (*time / duration).clamp(0.0, 1.0) as f32;
+    let track_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 4.0));
+    let filled_rect = egui::Rect::from_min_max(
+        track_rect.left_top(),
+        egui::pos2(
+            track_rect.left() + track_rect.width() * progress,
+            track_rect.bottom(),
+        ),
+    );
+    let handle_center = egui::pos2(
+        track_rect.left() + track_rect.width() * progress,
+        track_rect.center().y,
+    );
+
+    ui.painter().rect(
+        track_rect,
+        egui::CornerRadius::same(2),
+        egui::Color32::from_rgb(224, 229, 232),
+        egui::Stroke::NONE,
+        egui::StrokeKind::Outside,
+    );
+    if filled_rect.width() > 0.5 {
+        ui.painter().rect(
+            filled_rect,
+            egui::CornerRadius::same(2),
+            ACCENT,
+            egui::Stroke::NONE,
+            egui::StrokeKind::Outside,
         );
-    });
+    }
+    ui.painter().circle(
+        handle_center,
+        6.0,
+        egui::Color32::from_rgb(247, 250, 251),
+        egui::Stroke::new(1.5, egui::Color32::from_rgb(75, 88, 98)),
+    );
+
+    response
 }
 
 fn current_subtitle_card(
@@ -1548,21 +1629,47 @@ fn compact_error(error: &str) -> String {
     }
 }
 
+fn output_chip_row(ui: &mut egui::Ui, labels: &[&str]) {
+    let total_width = labels
+        .iter()
+        .map(|label| output_chip_width(label))
+        .sum::<f32>()
+        + OUTPUT_CHIP_GAP * labels.len().saturating_sub(1) as f32;
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = OUTPUT_CHIP_GAP;
+        ui.add_space((ui.available_width() - total_width).max(0.0) * 0.5);
+        for label in labels {
+            output_chip(ui, label);
+        }
+    });
+}
+
 fn output_chip(ui: &mut egui::Ui, label: &str) {
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(239, 245, 247))
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .corner_radius(999.0)
-        .inner_margin(egui::Margin::symmetric(10, 5))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(label)
-                    .monospace()
-                    .size(12.0)
-                    .strong()
-                    .color(MUTED),
-            );
-        });
+    let size = egui::vec2(output_chip_width(label), OUTPUT_CHIP_HEIGHT);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same((OUTPUT_CHIP_HEIGHT * 0.5) as u8),
+        egui::Color32::from_rgb(239, 245, 247),
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::monospace(12.0),
+        MUTED,
+    );
+}
+
+fn output_chip_width(label: &str) -> f32 {
+    let text_width = label
+        .chars()
+        .map(|character| if character.is_ascii() { 7.5 } else { 12.0 })
+        .sum::<f32>();
+    (text_width + 28.0).max(48.0)
 }
 
 fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
