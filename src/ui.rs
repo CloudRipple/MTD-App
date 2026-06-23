@@ -538,6 +538,9 @@ impl MtdApp {
                 .prepare(video_path, srt_path, &snapshot.segments);
             let fallback_duration = fallback_duration(&snapshot.segments);
             self.video_preview.update_playback(fallback_duration);
+            if self.video_preview.is_playing() {
+                ui.ctx().request_repaint();
+            }
             self.video_preview
                 .ensure_cache(ui.ctx(), self.subtitle_burn_options());
             self.video_preview.sync_frame(ui.ctx());

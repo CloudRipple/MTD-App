@@ -100,14 +100,26 @@ pub(crate) fn media_duration(media_path: &Path) -> Result<Option<f64>> {
     Ok(parse_duration(&stderr))
 }
 
+pub(crate) fn video_frame_rate(media_path: &Path) -> Result<Option<f64>> {
+    let ffmpeg =
+        find_ffmpeg().ok_or_else(|| anyhow!("未找到 ffmpeg，请安装 ffmpeg，或设置 FFMPEG_PATH"))?;
+    let output = Command::new(ffmpeg)
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(path_arg(media_path))
+        .output()
+        .context("读取视频帧率失败")?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(parse_video_frame_rate(&stderr))
+}
+
 pub(crate) fn stream_subtitle_preview_frames(
     video_path: &Path,
     srt_path: &Path,
     width: usize,
     height: usize,
-    fps: f64,
-    max_frames: usize,
     options: &SubtitleBurnOptions,
+    max_frames: Option<usize>,
     mut on_frame: impl FnMut(usize, Vec<u8>) -> bool,
 ) -> Result<usize> {
     let ffmpeg =
@@ -115,7 +127,7 @@ pub(crate) fn stream_subtitle_preview_frames(
     let input = path_arg(video_path);
     let subtitle_filter = subtitle_filter(srt_path, options);
     let filter = format!(
-        "fps={fps:.6},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
+        "scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0f171d,{subtitle_filter}"
     );
     let mut child = Command::new(ffmpeg)
         .arg("-hide_banner")
@@ -146,8 +158,9 @@ pub(crate) fn stream_subtitle_preview_frames(
         .take()
         .ok_or_else(|| anyhow!("无法读取预渲染输出"))?;
     let mut frames = 0usize;
+    let frame_limit = max_frames.unwrap_or(usize::MAX);
 
-    while frames < max_frames {
+    while frames < frame_limit {
         let mut rgb = vec![0; frame_len];
         match stdout.read_exact(&mut rgb) {
             Ok(()) => {
@@ -346,6 +359,37 @@ fn parse_duration(stderr: &str) -> Option<f64> {
     parse_duration_value(value)
 }
 
+fn parse_video_frame_rate(stderr: &str) -> Option<f64> {
+    stderr.lines().find_map(|line| {
+        (line.contains("Stream #") && line.contains("Video:"))
+            .then(|| parse_stream_frame_rate(line))?
+    })
+}
+
+fn parse_stream_frame_rate(line: &str) -> Option<f64> {
+    let parts = line.split(',').map(str::trim).collect::<Vec<_>>();
+
+    parts
+        .iter()
+        .find_map(|part| part.strip_suffix(" fps").and_then(parse_rate_value))
+        .or_else(|| {
+            parts
+                .iter()
+                .find_map(|part| part.strip_suffix(" tbr").and_then(parse_rate_value))
+        })
+}
+
+fn parse_rate_value(value: &str) -> Option<f64> {
+    let rate = if let Some((numerator, denominator)) = value.split_once('/') {
+        let numerator = numerator.trim().parse::<f64>().ok()?;
+        let denominator = denominator.trim().parse::<f64>().ok()?;
+        (denominator != 0.0).then_some(numerator / denominator)?
+    } else {
+        value.trim().parse::<f64>().ok()?
+    };
+    (rate.is_finite() && rate > 0.0).then_some(rate)
+}
+
 fn parse_duration_value(value: &str) -> Option<f64> {
     let parts = value.split(':').collect::<Vec<_>>();
     let [hours, minutes, seconds] = parts.as_slice() else {
@@ -470,6 +514,15 @@ mod tests {
         let stderr = "Input #0, mov,mp4,m4a,3gp,3g2,mj2\n  Duration: 00:01:02.540, start: 0.000000, bitrate: 1000 kb/s";
 
         assert_eq!(parse_duration(stderr), Some(62.54));
+    }
+
+    #[test]
+    fn parses_video_frame_rate_from_ffmpeg_stream_line() {
+        let stderr = "  Stream #0:0[0x1](und): Video: h264, yuv420p, 1920x1080, 30000/1001 fps, 30 tbr, 90k tbn";
+
+        let frame_rate = parse_video_frame_rate(stderr).expect("frame rate");
+
+        assert!((frame_rate - 29.970).abs() < 0.001);
     }
 
     fn has_arg_pair(args: &[String], key: &str, value: &str) -> bool {

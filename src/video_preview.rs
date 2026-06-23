@@ -1,4 +1,6 @@
 use std::{
+    fs::{self, File},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
@@ -8,14 +10,16 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    media::{PreviewFrame, SubtitleBurnOptions, media_duration, stream_subtitle_preview_frames},
+    media::{
+        PreviewFrame, SubtitleBurnOptions, media_duration, stream_subtitle_preview_frames,
+        video_frame_rate,
+    },
     models::Segment,
 };
 
 const PREVIEW_FRAME_WIDTH: usize = 640;
 const PREVIEW_FRAME_HEIGHT: usize = 360;
-const PREVIEW_FPS: f64 = 3.0;
-const PREVIEW_CACHE_BUDGET_BYTES: usize = 192 * 1024 * 1024;
+const FALLBACK_PREVIEW_FPS: f64 = 30.0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PreviewSource {
@@ -24,10 +28,10 @@ struct PreviewSource {
 }
 
 #[derive(Clone, Debug)]
-struct CachedFrame {
+struct CachedFrameLocation {
     index: usize,
     time: f64,
-    frame: PreviewFrame,
+    offset: u64,
 }
 
 #[derive(Default)]
@@ -36,13 +40,15 @@ struct RenderCache {
     pending: bool,
     complete: bool,
     key: Option<String>,
-    frames: Vec<CachedFrame>,
+    file_path: Option<PathBuf>,
+    frames: Vec<CachedFrameLocation>,
     error: Option<String>,
 }
 
 pub(crate) struct VideoPreview {
     source: Option<PreviewSource>,
     duration: Option<f64>,
+    frame_rate: f64,
     current_time: f64,
     playing: bool,
     last_tick: Option<Instant>,
@@ -57,6 +63,7 @@ impl Default for VideoPreview {
         Self {
             source: None,
             duration: None,
+            frame_rate: FALLBACK_PREVIEW_FPS,
             current_time: 0.0,
             playing: false,
             last_tick: None,
@@ -108,6 +115,10 @@ impl VideoPreview {
 
         self.source = Some(next_source);
         self.duration = media_duration(video_path).ok().flatten();
+        self.frame_rate = video_frame_rate(video_path)
+            .ok()
+            .flatten()
+            .unwrap_or(FALLBACK_PREVIEW_FPS);
         self.current_time = first_subtitle_time(segments);
         self.playing = false;
         self.last_tick = None;
@@ -120,6 +131,7 @@ impl VideoPreview {
     pub(crate) fn reset(&mut self) {
         self.source = None;
         self.duration = None;
+        self.frame_rate = FALLBACK_PREVIEW_FPS;
         self.current_time = 0.0;
         self.playing = false;
         self.last_tick = None;
@@ -171,10 +183,6 @@ impl VideoPreview {
         let Some(source) = self.source.clone() else {
             return;
         };
-        let preview_fps = self
-            .duration
-            .map(adaptive_preview_fps)
-            .unwrap_or(PREVIEW_FPS);
         let key = render_key(&source, &options);
         {
             let cache = self.cache.lock().expect("preview cache lock");
@@ -190,41 +198,55 @@ impl VideoPreview {
         cache.key = Some(key);
         cache.frames.clear();
         cache.error = None;
+        let cache_path = preview_cache_path(cache.generation);
+        cache.file_path = Some(cache_path.clone());
         let generation = cache.generation;
         let cache_handle = Arc::clone(&self.cache);
         let ctx = ctx.clone();
+        let frame_rate = self.frame_rate;
         drop(cache);
 
         thread::spawn(move || {
-            let max_frames = preview_max_frames();
-            let result = stream_subtitle_preview_frames(
-                &source.video_path,
-                &source.srt_path,
-                PREVIEW_FRAME_WIDTH,
-                PREVIEW_FRAME_HEIGHT,
-                preview_fps,
-                max_frames,
-                &options,
-                |index, rgb| {
-                    let mut cache = cache_handle.lock().expect("preview cache lock");
-                    if cache.generation != generation {
-                        return false;
-                    }
-                    cache.frames.push(CachedFrame {
-                        index,
-                        time: index as f64 / preview_fps,
-                        frame: PreviewFrame {
-                            width: PREVIEW_FRAME_WIDTH,
-                            height: PREVIEW_FRAME_HEIGHT,
-                            rgb,
+            let frame_len = preview_frame_len();
+            let mut write_error = None;
+            let result = File::create(&cache_path)
+                .map_err(anyhow::Error::from)
+                .and_then(|mut file| {
+                    stream_subtitle_preview_frames(
+                        &source.video_path,
+                        &source.srt_path,
+                        PREVIEW_FRAME_WIDTH,
+                        PREVIEW_FRAME_HEIGHT,
+                        &options,
+                        None,
+                        |index, rgb| {
+                            let offset = (index * frame_len) as u64;
+                            if let Err(error) = file.write_all(&rgb) {
+                                write_error = Some(error.to_string());
+                                return false;
+                            }
+
+                            let mut cache = cache_handle.lock().expect("preview cache lock");
+                            if cache.generation != generation {
+                                return false;
+                            }
+                            cache.frames.push(CachedFrameLocation {
+                                index,
+                                time: index as f64 / frame_rate,
+                                offset,
+                            });
+                            if index == 0 || index % frame_rate.max(1.0).round() as usize == 0 {
+                                ctx.request_repaint();
+                            }
+                            true
                         },
-                    });
-                    if index == 0 || index % 6 == 0 {
-                        ctx.request_repaint();
-                    }
-                    true
-                },
-            );
+                    )
+                });
+
+            let result = match write_error {
+                Some(error) => Err(anyhow::anyhow!("写入预渲染缓存失败：{error}")),
+                None => result,
+            };
 
             let mut cache = cache_handle.lock().expect("preview cache lock");
             if cache.generation == generation {
@@ -233,6 +255,10 @@ impl VideoPreview {
                 if let Err(error) = result {
                     cache.error = Some(error.to_string());
                 }
+            } else {
+                drop(cache);
+                let _ = fs::remove_file(cache_path);
+                return;
             }
             ctx.request_repaint();
         });
@@ -263,31 +289,85 @@ impl VideoPreview {
 
     fn cached_frame_for_current_time(&self) -> Option<CachedFrame> {
         let cache = self.cache.lock().expect("preview cache lock");
-        cache
-            .frames
-            .iter()
-            .min_by(|left, right| {
-                let left_distance = (left.time - self.current_time).abs();
-                let right_distance = (right.time - self.current_time).abs();
-                left_distance.total_cmp(&right_distance)
-            })
-            .cloned()
+        let frame = nearest_cached_frame(&cache.frames, self.current_time)?.clone();
+        let file_path = cache.file_path.clone()?;
+        drop(cache);
+
+        let mut file = File::open(file_path).ok()?;
+        let mut rgb = vec![0; preview_frame_len()];
+        file.seek(SeekFrom::Start(frame.offset)).ok()?;
+        file.read_exact(&mut rgb).ok()?;
+        Some(CachedFrame {
+            index: frame.index,
+            time: frame.time,
+            frame: PreviewFrame {
+                width: PREVIEW_FRAME_WIDTH,
+                height: PREVIEW_FRAME_HEIGHT,
+                rgb,
+            },
+        })
     }
 
     fn reset_cache(&mut self) {
-        let mut cache = self.cache.lock().expect("preview cache lock");
-        cache.generation = cache.generation.wrapping_add(1);
-        cache.pending = false;
-        cache.complete = false;
-        cache.key = None;
-        cache.frames.clear();
-        cache.error = None;
+        let old_cache_path = {
+            let mut cache = self.cache.lock().expect("preview cache lock");
+            cache.generation = cache.generation.wrapping_add(1);
+            cache.pending = false;
+            cache.complete = false;
+            cache.key = None;
+            cache.frames.clear();
+            cache.error = None;
+            cache.file_path.take()
+        };
+        if let Some(path) = old_cache_path {
+            let _ = fs::remove_file(path);
+        }
     }
 
     fn clamp_time(&self, time: f64) -> f64 {
         let upper = self.duration.unwrap_or(f64::MAX);
         time.max(0.0).min(upper)
     }
+}
+
+#[derive(Clone, Debug)]
+struct CachedFrame {
+    index: usize,
+    time: f64,
+    frame: PreviewFrame,
+}
+
+fn nearest_cached_frame(
+    frames: &[CachedFrameLocation],
+    current_time: f64,
+) -> Option<&CachedFrameLocation> {
+    let insertion = frames.partition_point(|frame| frame.time < current_time);
+    match (insertion.checked_sub(1), frames.get(insertion)) {
+        (Some(previous), Some(next)) => {
+            let previous = &frames[previous];
+            let previous_distance = (previous.time - current_time).abs();
+            let next_distance = (next.time - current_time).abs();
+            if previous_distance <= next_distance {
+                Some(previous)
+            } else {
+                Some(next)
+            }
+        }
+        (Some(previous), None) => frames.get(previous),
+        (None, Some(next)) => Some(next),
+        (None, None) => None,
+    }
+}
+
+fn preview_frame_len() -> usize {
+    PREVIEW_FRAME_WIDTH * PREVIEW_FRAME_HEIGHT * 3
+}
+
+fn preview_cache_path(generation: u64) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "mtd-subtitle-preview-{}-{generation}.rgb",
+        std::process::id()
+    ))
 }
 
 pub(crate) fn fallback_duration(segments: &[Segment]) -> f64 {
@@ -308,18 +388,6 @@ pub(crate) fn active_segment_at(segments: &[Segment], time: f64) -> Option<&Segm
                 left_distance.total_cmp(&right_distance)
             })
         })
-}
-
-fn preview_max_frames() -> usize {
-    let frame_bytes = PREVIEW_FRAME_WIDTH * PREVIEW_FRAME_HEIGHT * 3;
-    (PREVIEW_CACHE_BUDGET_BYTES / frame_bytes).max(1)
-}
-
-fn adaptive_preview_fps(duration: f64) -> f64 {
-    if duration <= 0.0 {
-        return PREVIEW_FPS;
-    }
-    PREVIEW_FPS.min(preview_max_frames() as f64 / duration.max(1.0))
 }
 
 fn render_key(source: &PreviewSource, options: &SubtitleBurnOptions) -> String {
