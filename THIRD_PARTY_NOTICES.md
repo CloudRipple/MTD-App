@@ -55,6 +55,10 @@ The following direct crates are used by this application:
 | `reqwest` | HTTPS and multipart API client | MIT OR Apache-2.0 |
 | `rfd` | Native file dialogs | MIT OR Apache-2.0 |
 | `serde_json` | JSON parsing and writing | MIT OR Apache-2.0 |
+| `winit` | Native window/event-loop integration on macOS | MIT OR Apache-2.0 |
+| `objc2` | macOS Objective-C bridge for native menu integration | MIT |
+| `objc2-app-kit` | AppKit bindings for native macOS menu integration | Zlib OR Apache-2.0 OR MIT |
+| `objc2-foundation` | Foundation bindings for native macOS menu integration | MIT |
 
 Before public distribution, generate full notices for transitive crates from `Cargo.lock` with a license-notice tool such as `cargo-about` or an equivalent internal compliance workflow.
 
