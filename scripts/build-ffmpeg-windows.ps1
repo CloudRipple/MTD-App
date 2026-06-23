@@ -28,7 +28,16 @@ if ($RootForBash -match "^([A-Za-z]):/(.*)$") {
   $RootForBash = "/$Drive/$Rest"
 }
 
-& $Bash -lc "cd '$RootForBash' && scripts/build-ffmpeg.sh windows"
+$MsysCommand = @"
+export MSYSTEM=MINGW64
+export CHERE_INVOKING=1
+export PATH="/mingw64/bin:/usr/bin:`$PATH"
+export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig:`${PKG_CONFIG_PATH:-}"
+cd '$RootForBash'
+scripts/build-ffmpeg.sh windows
+"@
+
+& $Bash -lc $MsysCommand
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
