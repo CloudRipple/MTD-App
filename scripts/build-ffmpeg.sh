@@ -46,7 +46,8 @@ fi
 PKG_CONFIG_BIN="${PKG_CONFIG:-pkg-config}"
 
 if ! command -v "$PKG_CONFIG_BIN" >/dev/null 2>&1; then
-  echo "pkg-config is required to build bundled ffmpeg."
+  echo "A pkg-config compatible tool is required to build bundled ffmpeg."
+  echo "Checked: $PKG_CONFIG_BIN"
   exit 1
 fi
 
