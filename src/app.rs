@@ -29,7 +29,6 @@ pub(crate) struct MtdApp {
     pub(crate) include_speaker: bool,
     pub(crate) subtitle_fonts: Vec<SubtitleFont>,
     pub(crate) selected_subtitle_font: Option<String>,
-    pub(crate) subtitle_font_size: u32,
     pub(crate) settings_store_message: Option<String>,
     pub(crate) settings_store_error: bool,
     pub(crate) remember_api_key: bool,
@@ -84,7 +83,6 @@ impl Default for MtdApp {
             include_speaker: app_settings.include_speaker,
             subtitle_fonts,
             selected_subtitle_font,
-            subtitle_font_size: app_settings.subtitle_font_size,
             settings_store_message: None,
             settings_store_error: false,
             remember_api_key,
@@ -182,7 +180,6 @@ impl MtdApp {
             max_tokens: self.max_tokens.clamp(1_000, 96_000),
             include_speaker: self.include_speaker,
             subtitle_font: self.selected_subtitle_font.clone(),
-            subtitle_font_size: self.subtitle_font_size.clamp(12, 96),
         };
         match app_settings::save_app_settings(&settings) {
             Ok(()) => {
@@ -340,7 +337,6 @@ impl MtdApp {
             fonts::selected_font(&self.subtitle_fonts, self.selected_subtitle_font.as_deref());
         SubtitleBurnOptions {
             font_family: self.selected_subtitle_font.clone(),
-            font_size: self.subtitle_font_size.clamp(12, 96),
             fonts_dir: font.and_then(|font| font.source_dir.clone()),
         }
     }

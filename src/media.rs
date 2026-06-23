@@ -14,21 +14,10 @@ pub(crate) fn extract_audio(video_path: &Path, audio_path: &Path) -> Result<()> 
     ]))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct SubtitleBurnOptions {
     pub(crate) font_family: Option<String>,
-    pub(crate) font_size: u32,
     pub(crate) fonts_dir: Option<PathBuf>,
-}
-
-impl Default for SubtitleBurnOptions {
-    fn default() -> Self {
-        Self {
-            font_family: None,
-            font_size: 24,
-            fonts_dir: None,
-        }
-    }
 }
 
 pub(crate) fn burn_subtitles(
@@ -247,22 +236,16 @@ fn subtitle_filter(srt_path: &Path, options: &SubtitleBurnOptions) -> String {
             escape_subtitle_filter_path(fonts_dir)
         ));
     }
-    let mut force_style = Vec::new();
     if let Some(font_family) = options
         .font_family
         .as_deref()
         .map(str::trim)
         .filter(|font| !font.is_empty())
     {
-        force_style.push(format!(
-            "FontName={}",
+        filter.push_str(&format!(
+            ":force_style='FontName={}'",
             escape_subtitle_force_style(font_family)
         ));
-    }
-    let font_size = options.font_size.clamp(12, 96);
-    force_style.push(format!("FontSize={font_size}"));
-    if !force_style.is_empty() {
-        filter.push_str(&format!(":force_style='{}'", force_style.join(",")));
     }
     filter
 }
@@ -318,7 +301,6 @@ mod tests {
     fn subtitle_filter_can_force_selected_font() {
         let options = SubtitleBurnOptions {
             font_family: Some("HarmonyOS Sans SC".to_owned()),
-            font_size: 28,
             fonts_dir: Some(PathBuf::from("/tmp/fonts")),
         };
 
@@ -326,23 +308,7 @@ mod tests {
 
         assert_eq!(
             filter,
-            "subtitles='/tmp/captions.srt':fontsdir='/tmp/fonts':force_style='FontName=HarmonyOS Sans SC,FontSize=28'"
-        );
-    }
-
-    #[test]
-    fn subtitle_filter_can_force_font_size_without_font_family() {
-        let options = SubtitleBurnOptions {
-            font_family: None,
-            font_size: 18,
-            fonts_dir: None,
-        };
-
-        let filter = subtitle_filter(Path::new("/tmp/captions.srt"), &options);
-
-        assert_eq!(
-            filter,
-            "subtitles='/tmp/captions.srt':force_style='FontSize=18'"
+            "subtitles='/tmp/captions.srt':fontsdir='/tmp/fonts':force_style='FontName=HarmonyOS Sans SC'"
         );
     }
 
