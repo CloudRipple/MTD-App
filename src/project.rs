@@ -90,6 +90,10 @@ fn segment_value(segment: &Segment) -> Value {
     json!({
         "start": segment.start,
         "end": segment.end,
+        "raw_start": segment.raw_start,
+        "raw_end": segment.raw_end,
+        "start_valid": segment.start_valid,
+        "end_valid": segment.end_valid,
         "speaker": segment.speaker,
         "text": segment.text,
     })
@@ -105,6 +109,22 @@ fn parse_segments(value: Option<&Value>) -> Result<Vec<Segment>> {
             Ok(Segment {
                 start: segment.get("start").and_then(Value::as_f64).unwrap_or(0.0),
                 end: segment.get("end").and_then(Value::as_f64).unwrap_or(0.0),
+                raw_start: segment
+                    .get("raw_start")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                raw_end: segment
+                    .get("raw_end")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                start_valid: segment
+                    .get("start_valid")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                end_valid: segment
+                    .get("end_valid")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
                 speaker: segment
                     .get("speaker")
                     .and_then(Value::as_str)
@@ -169,6 +189,10 @@ mod tests {
             segments: vec![Segment {
                 start: 0.0,
                 end: 1.0,
+                raw_start: None,
+                raw_end: None,
+                start_valid: true,
+                end_valid: true,
                 speaker: "S01".to_owned(),
                 text: "Hello".to_owned(),
             }],

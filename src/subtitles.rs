@@ -21,24 +21,34 @@ pub(crate) fn normalize_segments(transcript: &Value) -> Result<Vec<Segment>> {
         if text.is_empty() {
             continue;
         }
-        let start = seconds_from_value(
+        let fallback_start = normalized
+            .last()
+            .map(|segment: &Segment| segment.end)
+            .unwrap_or(0.0);
+        let start = time_from_value(
             segment
                 .get("start_s")
                 .or_else(|| segment.get("start"))
                 .or_else(|| segment.get("start_ms")),
-        )?;
-        let mut end = seconds_from_value(
+            fallback_start,
+        );
+        let mut end = time_from_value(
             segment
                 .get("end_s")
                 .or_else(|| segment.get("end"))
                 .or_else(|| segment.get("end_ms")),
-        )?;
-        if end <= start {
-            end = start + 1.0;
+            start.seconds + 1.0,
+        );
+        if end.seconds <= start.seconds {
+            end.seconds = start.seconds + 1.0;
         }
         normalized.push(Segment {
-            start,
-            end,
+            start: start.seconds,
+            end: end.seconds,
+            raw_start: start.raw,
+            raw_end: end.raw,
+            start_valid: start.valid,
+            end_valid: end.valid,
             speaker: segment
                 .get("speaker")
                 .and_then(Value::as_str)
@@ -62,6 +72,7 @@ pub(crate) fn write_vtt(path: &Path, segments: &[Segment], include_speaker: bool
 }
 
 pub(crate) fn render_srt(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    ensure_valid_times(segments)?;
     let mut output = Vec::new();
     for (index, segment) in segments.iter().enumerate() {
         let text = if include_speaker && !segment.speaker.is_empty() {
@@ -82,6 +93,7 @@ pub(crate) fn render_srt(segments: &[Segment], include_speaker: bool) -> Result<
 }
 
 pub(crate) fn render_vtt(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    ensure_valid_times(segments)?;
     let mut output = Vec::new();
     writeln!(output, "WEBVTT\n")?;
     for segment in segments {
@@ -101,21 +113,91 @@ pub(crate) fn render_vtt(segments: &[Segment], include_speaker: bool) -> Result<
     String::from_utf8(output).context("无法生成 VTT 文本")
 }
 
-fn seconds_from_value(value: Option<&Value>) -> Result<f64> {
+pub(crate) fn render_srt_preview(segments: &[Segment], include_speaker: bool) -> String {
+    let mut output = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        let text = if include_speaker && !segment.speaker.is_empty() {
+            format!("{}: {}", segment.speaker, segment.text)
+        } else {
+            segment.text.clone()
+        };
+        output.push_str(&format!(
+            "{}\n{} --> {}\n{}\n\n",
+            index + 1,
+            preview_time(
+                segment.raw_start.as_deref(),
+                segment.start_valid,
+                segment.start
+            ),
+            preview_time(segment.raw_end.as_deref(), segment.end_valid, segment.end),
+            text
+        ));
+    }
+    output
+}
+
+#[derive(Debug)]
+struct ParsedTime {
+    seconds: f64,
+    raw: Option<String>,
+    valid: bool,
+}
+
+fn time_from_value(value: Option<&Value>, fallback: f64) -> ParsedTime {
     let Some(value) = value else {
-        return Ok(0.0);
+        return ParsedTime {
+            seconds: fallback.max(0.0),
+            raw: None,
+            valid: true,
+        };
     };
     if let Some(number) = value.as_f64() {
-        return Ok(number);
+        return ParsedTime {
+            seconds: normalize_numeric_seconds(number, ""),
+            raw: None,
+            valid: true,
+        };
     }
     let text = value.as_str().unwrap_or("0");
-    let number = text
-        .parse::<f64>()
-        .with_context(|| format!("时间戳格式无效：{text}"))?;
+    match text.parse::<f64>() {
+        Ok(number) => ParsedTime {
+            seconds: normalize_numeric_seconds(number, text),
+            raw: None,
+            valid: true,
+        },
+        Err(_) => ParsedTime {
+            seconds: fallback.max(0.0),
+            raw: Some(text.to_owned()),
+            valid: false,
+        },
+    }
+}
+
+fn normalize_numeric_seconds(number: f64, text: &str) -> f64 {
     if number > 1000.0 && !text.contains('.') {
-        Ok(number / 1000.0)
+        number / 1000.0
     } else {
-        Ok(number)
+        number
+    }
+}
+
+fn ensure_valid_times(segments: &[Segment]) -> Result<()> {
+    if let Some(segment) = segments.iter().find(|segment| segment.has_invalid_time()) {
+        let value = if !segment.start_valid {
+            segment.raw_start.as_deref().unwrap_or("")
+        } else {
+            segment.raw_end.as_deref().unwrap_or("")
+        };
+        return Err(anyhow!("时间戳需要修正：{value}"));
+    }
+    Ok(())
+}
+
+fn preview_time(raw: Option<&str>, valid: bool, seconds: f64) -> String {
+    if valid {
+        srt_time(seconds)
+    } else {
+        raw.unwrap_or("").to_owned()
     }
 }
 
@@ -134,14 +216,19 @@ fn vtt_time(seconds: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_srt;
+    use super::{normalize_segments, render_srt, render_srt_preview};
     use crate::models::Segment;
+    use serde_json::json;
 
     #[test]
     fn renders_speaker_name_into_srt_text() {
         let segments = vec![Segment {
             start: 2.54,
             end: 4.49,
+            raw_start: None,
+            raw_end: None,
+            start_valid: true,
+            end_valid: true,
             speaker: "张三".to_owned(),
             text: "你好".to_owned(),
         }];
@@ -149,5 +236,22 @@ mod tests {
         let srt = render_srt(&segments, true).expect("render srt");
 
         assert!(srt.contains("张三: 你好"));
+    }
+
+    #[test]
+    fn preserves_invalid_timestamp_for_repairable_preview() {
+        let transcript = json!({
+            "segments": [
+                { "start": "02:46.83", "end": 170.0, "text": "hello" }
+            ]
+        });
+
+        let segments = normalize_segments(&transcript).expect("normalize");
+
+        assert_eq!(segments.len(), 1);
+        assert!(!segments[0].start_valid);
+        assert_eq!(segments[0].raw_start.as_deref(), Some("02:46.83"));
+        assert!(render_srt(&segments, false).is_err());
+        assert!(render_srt_preview(&segments, false).contains("02:46.83 -->"));
     }
 }

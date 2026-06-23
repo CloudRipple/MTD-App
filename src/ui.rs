@@ -793,7 +793,7 @@ impl MtdApp {
             .show(ui, |ui| {
                 ui.set_min_height(content_height);
                 for (index, segment) in segments.iter().enumerate() {
-                    if let Some((start, end, speaker, text)) = segment_row(
+                    if let Some((start, end, speaker, text, clear_time_errors)) = segment_row(
                         ui,
                         index,
                         index + 1,
@@ -801,7 +801,7 @@ impl MtdApp {
                         &speaker_names,
                         &mut self.time_edits,
                     ) {
-                        edits.push((index, start, end, speaker, text));
+                        edits.push((index, start, end, speaker, text, clear_time_errors));
                     }
                     if index + 1 < segments.len() {
                         ui.add_space(6.0);
@@ -809,8 +809,8 @@ impl MtdApp {
                 }
             });
 
-        for (index, start, end, speaker, text) in edits {
-            self.update_segment(index, start, end, speaker, text);
+        for (index, start, end, speaker, text, clear_time_errors) in edits {
+            self.update_segment(index, start, end, speaker, text, clear_time_errors);
         }
     }
 }
@@ -1787,16 +1787,40 @@ fn segment_row(
     segment: &Segment,
     speaker_names: &BTreeMap<String, String>,
     time_edits: &mut BTreeMap<usize, (String, String)>,
-) -> Option<(f64, f64, String, String)> {
+) -> Option<(f64, f64, String, String, bool)> {
     let mut speaker = display_speaker(&segment.speaker, speaker_names);
     let mut text = segment.text.clone();
-    let time_draft = time_edits
-        .entry(segment_index)
-        .or_insert_with(|| (display_time(segment.start), display_time(segment.end)));
+    let time_draft = time_edits.entry(segment_index).or_insert_with(|| {
+        (
+            initial_time_text(
+                segment.raw_start.as_deref(),
+                segment.start_valid,
+                segment.start,
+            ),
+            initial_time_text(segment.raw_end.as_deref(), segment.end_valid, segment.end),
+        )
+    });
     let mut start_text = time_draft.0.clone();
     let mut end_text = time_draft.1.clone();
     let mut time_changed = false;
     let mut content_changed = false;
+    let start_parse = parse_edit_time(&start_text);
+    let end_parse = parse_edit_time(&end_text);
+    let unchanged_invalid_start = !segment.start_valid
+        && segment
+            .raw_start
+            .as_deref()
+            .is_some_and(|raw| start_text.trim() == raw);
+    let unchanged_invalid_end = !segment.end_valid
+        && segment
+            .raw_end
+            .as_deref()
+            .is_some_and(|raw| end_text.trim() == raw);
+    let range_invalid = start_parse
+        .zip(end_parse)
+        .is_some_and(|(start, end)| end <= start);
+    let start_invalid = unchanged_invalid_start || start_parse.is_none() || range_invalid;
+    let end_invalid = unchanged_invalid_end || end_parse.is_none() || range_invalid;
 
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
@@ -1821,9 +1845,9 @@ fn segment_row(
                             .color(FAINT),
                     ),
                 );
-                time_changed |= editable_time_field(ui, &mut start_text).changed();
+                time_changed |= editable_time_field(ui, &mut start_text, start_invalid).changed();
                 time_separator(ui);
-                time_changed |= editable_time_field(ui, &mut end_text).changed();
+                time_changed |= editable_time_field(ui, &mut end_text, end_invalid).changed();
                 content_changed |= editable_speaker_field(ui, &mut speaker).changed();
                 ui.add_space(6.0);
                 content_changed |= editable_subtitle_field(ui, &mut text).changed();
@@ -1834,17 +1858,27 @@ fn segment_row(
         *time_draft = (start_text.clone(), end_text.clone());
     }
 
+    let unchanged_invalid_start = !segment.start_valid
+        && segment
+            .raw_start
+            .as_deref()
+            .is_some_and(|raw| start_text.trim() == raw);
+    let unchanged_invalid_end = !segment.end_valid
+        && segment
+            .raw_end
+            .as_deref()
+            .is_some_and(|raw| end_text.trim() == raw);
     let parsed_time = parse_edit_time(&start_text).zip(parse_edit_time(&end_text));
     let valid_time = parsed_time
-        .filter(|(start, end)| *end > *start)
+        .filter(|(start, end)| *end > *start && !unchanged_invalid_start && !unchanged_invalid_end)
         .map(|(start, end)| (start, end));
 
     if let Some((start, end)) = valid_time {
         if time_changed || content_changed {
-            return Some((start, end, speaker, text));
+            return Some((start, end, speaker, text, true));
         }
     } else if content_changed {
-        return Some((segment.start, segment.end, speaker, text));
+        return Some((segment.start, segment.end, speaker, text, false));
     }
 
     None
@@ -1871,12 +1905,20 @@ fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<Strin
         });
 }
 
-fn editable_time_field(ui: &mut egui::Ui, value: &mut String) -> egui::Response {
+fn editable_time_field(ui: &mut egui::Ui, value: &mut String, invalid: bool) -> egui::Response {
     egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(252, 254, 254))
+        .fill(if invalid {
+            egui::Color32::from_rgb(255, 239, 239)
+        } else {
+            egui::Color32::from_rgb(252, 254, 254)
+        })
         .stroke(egui::Stroke::new(
             1.0,
-            egui::Color32::from_rgb(226, 233, 236),
+            if invalid {
+                DANGER
+            } else {
+                egui::Color32::from_rgb(226, 233, 236)
+            },
         ))
         .corner_radius(7.0)
         .inner_margin(egui::Margin::symmetric(7, 4))
@@ -1890,6 +1932,14 @@ fn editable_time_field(ui: &mut egui::Ui, value: &mut String) -> egui::Response 
             )
         })
         .inner
+}
+
+fn initial_time_text(raw: Option<&str>, valid: bool, seconds: f64) -> String {
+    if valid {
+        display_time(seconds)
+    } else {
+        raw.unwrap_or("").to_owned()
+    }
 }
 
 fn time_separator(ui: &mut egui::Ui) {

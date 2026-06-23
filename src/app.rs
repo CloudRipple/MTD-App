@@ -18,7 +18,7 @@ use crate::{
     pipeline::run_job,
     project::{load_project, save_project},
     secret_store::{self, ApiKeyStorage},
-    subtitles::{render_srt, write_srt, write_vtt},
+    subtitles::{render_srt, render_srt_preview, write_srt, write_vtt},
     theme::CANVAS,
     video_preview::VideoPreview,
 };
@@ -309,6 +309,10 @@ impl MtdApp {
             && !self.burning
             && snapshot.done
             && snapshot.error.is_none()
+            && !snapshot
+                .segments
+                .iter()
+                .any(|segment| segment.has_invalid_time())
             && snapshot.input_video_path.is_some()
             && snapshot.srt_path.is_some()
             && snapshot.subtitled_path.is_some()
@@ -383,6 +387,7 @@ impl MtdApp {
         end: f64,
         speaker: String,
         text: String,
+        clear_time_errors: bool,
     ) {
         let mut state = self.job.lock().expect("job lock");
         let Some(segment) = state.segments.get_mut(index) else {
@@ -393,7 +398,21 @@ impl MtdApp {
         segment.end = end.max(segment.start + 0.001);
         segment.speaker = speaker.trim().to_owned();
         segment.text = text;
+        if clear_time_errors {
+            segment.raw_start = None;
+            segment.raw_end = None;
+            segment.start_valid = true;
+            segment.end_valid = true;
+        }
         sync_subtitle_outputs(&mut state);
+        if !state
+            .segments
+            .iter()
+            .any(|segment| segment.has_invalid_time())
+        {
+            state.status = "完成".to_owned();
+            state.error = None;
+        }
         sync_project_file(&state);
         drop(state);
         self.video_preview.invalidate();
@@ -440,14 +459,21 @@ fn sync_subtitle_outputs(state: &mut JobSnapshot) {
         return;
     }
 
-    if let Ok(preview) = render_srt(&state.segments, state.include_speaker) {
-        state.preview = preview;
+    state.preview = render_srt_preview(&state.segments, state.include_speaker);
+    if state
+        .segments
+        .iter()
+        .any(|segment| segment.has_invalid_time())
+    {
+        return;
     }
-    if let Some(srt_path) = &state.srt_path {
-        let _ = write_srt(srt_path, &state.segments, state.include_speaker);
-    }
-    if let Some(vtt_path) = &state.vtt_path {
-        let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
+    if render_srt(&state.segments, state.include_speaker).is_ok() {
+        if let Some(srt_path) = &state.srt_path {
+            let _ = write_srt(srt_path, &state.segments, state.include_speaker);
+        }
+        if let Some(vtt_path) = &state.vtt_path {
+            let _ = write_vtt(vtt_path, &state.segments, state.include_speaker);
+        }
     }
 }
 

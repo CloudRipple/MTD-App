@@ -16,7 +16,7 @@ use crate::{
     media_types::is_direct_audio_path,
     models::JobSnapshot,
     project::{PROJECT_FILE_NAME, save_project},
-    subtitles::{normalize_segments, render_srt, write_srt, write_vtt},
+    subtitles::{normalize_segments, render_srt_preview, write_srt, write_vtt},
 };
 
 pub(crate) fn run_job(
@@ -118,18 +118,25 @@ pub(crate) fn run_job(
         .and_then(Value::as_str)
         .unwrap_or("");
     fs::write(&text_path, format!("{full_text}\n"))?;
-    write_srt(&srt_path, &segments, include_speaker)?;
-    write_vtt(&vtt_path, &segments, include_speaker)?;
+    let has_invalid_times = segments.iter().any(|segment| segment.has_invalid_time());
+    if !has_invalid_times {
+        write_srt(&srt_path, &segments, include_speaker)?;
+        write_vtt(&vtt_path, &segments, include_speaker)?;
+    }
 
     let usage = result
         .get("usage")
         .and_then(|usage| usage.get("total_tokens"))
         .map(|value| format!("{value} total"))
         .unwrap_or_else(|| "-".to_owned());
-    let preview = render_srt(&segments, include_speaker)?;
+    let preview = render_srt_preview(&segments, include_speaker);
     let snapshot = {
         let mut state = job.lock().expect("job lock");
-        state.status = "完成".to_owned();
+        state.status = if has_invalid_times {
+            "需要修正时间戳".to_owned()
+        } else {
+            "完成".to_owned()
+        };
         state.progress = 100.0;
         state.usage = usage;
         state.preview = preview;

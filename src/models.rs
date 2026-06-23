@@ -4,8 +4,18 @@ use std::path::PathBuf;
 pub(crate) struct Segment {
     pub(crate) start: f64,
     pub(crate) end: f64,
+    pub(crate) raw_start: Option<String>,
+    pub(crate) raw_end: Option<String>,
+    pub(crate) start_valid: bool,
+    pub(crate) end_valid: bool,
     pub(crate) speaker: String,
     pub(crate) text: String,
+}
+
+impl Segment {
+    pub(crate) fn has_invalid_time(&self) -> bool {
+        !self.start_valid || !self.end_valid
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
