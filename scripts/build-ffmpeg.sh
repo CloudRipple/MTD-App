@@ -43,12 +43,14 @@ if [ ! -x "$SRC_DIR/configure" ]; then
   exit 1
 fi
 
-if ! command -v pkg-config >/dev/null 2>&1; then
+PKG_CONFIG_BIN="${PKG_CONFIG:-pkg-config}"
+
+if ! command -v "$PKG_CONFIG_BIN" >/dev/null 2>&1; then
   echo "pkg-config is required to build bundled ffmpeg."
   exit 1
 fi
 
-if ! pkg-config --exists libass; then
+if ! "$PKG_CONFIG_BIN" --exists libass; then
   echo "libass development files are required so the bundled ffmpeg supports subtitle burn-in."
   echo "macOS: brew install libass pkg-config"
   echo "Linux: install pkg-config and libass-dev/libass-devel"
