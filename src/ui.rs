@@ -496,23 +496,25 @@ impl MtdApp {
     pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         let available = ui.available_width();
         let video_width = (available * 0.53).clamp(520.0, 740.0);
+        let panel_height = ui.available_height().max(260.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
-                egui::vec2(video_width, ui.available_height()),
+                egui::vec2(video_width, panel_height),
                 egui::Layout::top_down(egui::Align::Min),
-                |ui| self.render_video_preview(ui, snapshot),
+                |ui| self.render_video_preview(ui, snapshot, panel_height),
             );
             ui.add_space(12.0);
             ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), ui.available_height()),
+                egui::vec2(ui.available_width(), panel_height),
                 egui::Layout::top_down(egui::Align::Min),
-                |ui| self.render_preview(ui, snapshot),
+                |ui| self.render_preview(ui, snapshot, panel_height),
             );
         });
     }
 
-    fn render_video_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+    fn render_video_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
         preview_frame().show(ui, |ui| {
+            ui.set_min_height(review_panel_body_height(height));
             let label = if self.video_preview.is_playing() {
                 "播放中"
             } else if self.video_preview.has_texture() {
@@ -562,8 +564,14 @@ impl MtdApp {
         });
     }
 
-    pub(crate) fn render_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+    pub(crate) fn render_preview(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: &JobSnapshot,
+        height: f32,
+    ) {
         preview_frame().show(ui, |ui| {
+            ui.set_min_height(review_panel_body_height(height));
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), 28.0),
                 egui::Layout::left_to_right(egui::Align::Center),
@@ -1281,6 +1289,10 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
                 });
             });
         });
+}
+
+fn review_panel_body_height(panel_height: f32) -> f32 {
+    (panel_height - 28.0).max(160.0)
 }
 
 fn video_empty_state(ui: &mut egui::Ui, message: &str) {
