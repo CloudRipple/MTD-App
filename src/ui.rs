@@ -31,27 +31,28 @@ const OUTPUT_CHIP_GAP: f32 = 12.0;
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), 32.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                #[cfg(not(target_os = "macos"))]
-                self.render_file_menu(ui);
-                let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 32.0),
-                    egui::Sense::drag(),
-                );
-                if response.drag_started_by(egui::PointerButton::Primary) {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                ui.painter().text(
-                    rect.right_top(),
-                    egui::Align2::RIGHT_TOP,
-                    "字幕工作台",
-                    egui::FontId::proportional(22.0),
-                    INK,
-                );
-            },
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::drag());
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let menu_rect = egui::Rect::from_min_size(rect.min, egui::vec2(120.0, rect.height()));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    self.render_file_menu(ui);
+                });
+            });
+        }
+
+        ui.painter().text(
+            rect.center_top() + egui::vec2(0.0, 2.0),
+            egui::Align2::CENTER_TOP,
+            "MTD 字幕工作台",
+            egui::FontId::proportional(18.0),
+            INK,
         );
     }
 
