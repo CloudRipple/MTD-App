@@ -34,14 +34,16 @@ OUTPUT_FILE="$PREFIX_DIR/$EXE_NAME"
 shift || true
 EXTRA_CONFIGURE_FLAGS=("$@")
 
-if [ ! -x "$SRC_DIR/configure" ]; then
+if [ ! -f "$SRC_DIR/configure" ]; then
   git -C "$ROOT_DIR" submodule update --init --depth 1 vendor/ffmpeg-src
 fi
 
-if [ ! -x "$SRC_DIR/configure" ]; then
+if [ ! -f "$SRC_DIR/configure" ]; then
   echo "Missing FFmpeg source submodule at vendor/ffmpeg-src"
   exit 1
 fi
+
+chmod +x "$SRC_DIR/configure" 2>/dev/null || true
 
 PKG_CONFIG_BIN="${PKG_CONFIG:-pkg-config}"
 
@@ -104,7 +106,7 @@ mkdir -p "$BUILD_DIR" "$PREFIX_DIR"
 
 (
   cd "$BUILD_DIR"
-  CONFIGURE_COMMAND=("$SRC_DIR/configure" "${CONFIGURE_FLAGS[@]}")
+  CONFIGURE_COMMAND=(bash "$SRC_DIR/configure" "${CONFIGURE_FLAGS[@]}")
   if [ "${#EXTRA_CONFIGURE_FLAGS[@]}" -gt 0 ]; then
     CONFIGURE_COMMAND+=("${EXTRA_CONFIGURE_FLAGS[@]}")
   fi

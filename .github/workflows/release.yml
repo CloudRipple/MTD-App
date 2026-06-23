@@ -83,11 +83,12 @@ jobs:
             git
             make
             diffutils
-            nasm
-            yasm
+            pkgconf
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-libass
+            mingw-w64-x86_64-nasm
             mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-yasm
 
       - name: Build macOS package
         if: matrix.platform == 'macos'
