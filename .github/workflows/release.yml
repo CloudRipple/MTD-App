@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - platform: macos
-            os: macos-latest
+            os: macos-15
             asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-macos
           - platform: linux
             os: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -58,7 +58,13 @@ jobs:
 
       - name: Install macOS dependencies
         if: matrix.platform == 'macos'
-        run: brew install libass pkg-config
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew untap aws/tap || true
+          brew untap azure/bicep || true
+          brew install libass pkg-config
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -123,7 +129,7 @@ jobs:
           Copy-Item dist\windows\MTDSubtitleApp.exe "release-assets\${{ matrix.asset_name }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
           path: release-assets/${{ matrix.asset_name }}
@@ -136,13 +142,13 @@ jobs:
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag_name }}
           target_commitish: ${{ github.sha }}
