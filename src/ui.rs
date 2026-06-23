@@ -27,16 +27,18 @@ const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
-                ui.heading(
-                    egui::RichText::new("字幕工作台")
-                        .size(22.0)
-                        .strong()
-                        .color(INK),
-                );
-            });
-        });
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::drag());
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        ui.painter().text(
+            rect.right_top(),
+            egui::Align2::RIGHT_TOP,
+            "字幕工作台",
+            egui::FontId::proportional(22.0),
+            INK,
+        );
     }
 
     pub(crate) fn render_workspace(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {

@@ -33,7 +33,7 @@ fn app_viewport() -> egui::ViewportBuilder {
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false)
-        .with_movable_by_background(true)
+        .with_movable_by_background(false)
         .with_inner_size([1440.0, 930.0])
         .with_min_inner_size([1180.0, 820.0])
 }
