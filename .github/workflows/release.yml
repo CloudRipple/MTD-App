@@ -74,6 +74,7 @@ jobs:
 
       - name: Install Windows FFmpeg dependencies
         if: matrix.platform == 'windows'
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -104,7 +105,7 @@ jobs:
         env:
           CHERE_INVOKING: "1"
           MSYSTEM: MINGW64
-          MSYS2_BASH: C:\msys64\usr\bin\bash.exe
+          MSYS2_BASH: ${{ steps.msys2.outputs.msys2-location }}\usr\bin\bash.exe
           MSYS2_PATH_TYPE: inherit
         run: .\scripts\build-windows.ps1
 
