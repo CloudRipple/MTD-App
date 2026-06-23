@@ -10,6 +10,7 @@ pub(crate) const ACCENT: egui::Color32 = egui::Color32::from_rgb(30, 132, 118);
 pub(crate) const ACCENT_DARK: egui::Color32 = egui::Color32::from_rgb(17, 99, 90);
 pub(crate) const ACCENT_SOFT: egui::Color32 = egui::Color32::from_rgb(224, 243, 240);
 pub(crate) const DANGER: egui::Color32 = egui::Color32::from_rgb(176, 57, 54);
+pub(crate) const WINDOW_CORNER_RADIUS: u8 = 14;
 
 pub(crate) fn panel_frame() -> egui::Frame {
     egui::Frame::NONE

@@ -22,9 +22,14 @@ use crate::{
     project::{load_project, save_project},
     secret_store::{self, ApiKeyStorage},
     subtitles::{render_srt, render_srt_preview, write_srt, write_vtt},
-    theme::CANVAS,
+    theme::{BORDER, CANVAS, WINDOW_CORNER_RADIUS},
     video_preview::VideoPreview,
 };
+
+#[cfg(not(target_os = "macos"))]
+const RESIZE_HANDLE_SIZE: f32 = 6.0;
+#[cfg(not(target_os = "macos"))]
+const RESIZE_CORNER_SIZE: f32 = 16.0;
 
 struct SettingsSaveResult {
     generation: u64,
@@ -125,6 +130,14 @@ impl Default for MtdApp {
 }
 
 impl eframe::App for MtdApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if cfg!(target_os = "macos") {
+            CANVAS.to_normalized_gamma_f32()
+        } else {
+            egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_settings_save_result();
         let snapshot = self.job.lock().expect("job lock").clone();
@@ -143,18 +156,35 @@ impl eframe::App for MtdApp {
         }
 
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::NONE
-                    .fill(CANVAS)
-                    .inner_margin(egui::Margin::symmetric(22, 20)),
-            )
+            .frame(egui::Frame::NONE.fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(14.0, 12.0);
-                self.render_header(ui);
-                ui.add_space(10.0);
-                self.render_workspace(ui, &snapshot);
-                ui.add_space(12.0);
-                self.render_review_area(ui, &snapshot);
+                let shell_rect = ui.max_rect().shrink(0.5);
+                ui.painter().rect_filled(
+                    shell_rect,
+                    egui::CornerRadius::same(WINDOW_CORNER_RADIUS),
+                    CANVAS,
+                );
+                ui.painter().rect_stroke(
+                    shell_rect,
+                    egui::CornerRadius::same(WINDOW_CORNER_RADIUS),
+                    egui::Stroke::new(1.0, BORDER),
+                    egui::StrokeKind::Inside,
+                );
+
+                #[cfg(not(target_os = "macos"))]
+                render_resize_handles(ui, shell_rect);
+
+                ui.scope_builder(egui::UiBuilder::new().max_rect(shell_rect), |ui| {
+                    self.render_header(ui);
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(22, 16))
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(14.0, 12.0);
+                            self.render_workspace(ui, &snapshot);
+                            ui.add_space(12.0);
+                            self.render_review_area(ui, &snapshot);
+                        });
+                });
             });
 
         if self.running {
@@ -165,6 +195,107 @@ impl eframe::App for MtdApp {
         }
         if self.video_preview.is_playing() {
             ctx.request_repaint_after(Duration::from_millis(80));
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn render_resize_handles(ui: &mut egui::Ui, rect: egui::Rect) {
+    let maximized = ui
+        .ctx()
+        .input(|input| input.viewport().maximized.unwrap_or(false));
+    if maximized {
+        return;
+    }
+
+    let left = rect.left();
+    let right = rect.right();
+    let top = rect.top();
+    let bottom = rect.bottom();
+    let edge = RESIZE_HANDLE_SIZE;
+    let corner = RESIZE_CORNER_SIZE;
+    let handles = [
+        (
+            "resize_n",
+            egui::Rect::from_min_max(
+                egui::pos2(left + corner, top),
+                egui::pos2(right - corner, top + edge),
+            ),
+            egui::ResizeDirection::North,
+            egui::CursorIcon::ResizeNorth,
+        ),
+        (
+            "resize_s",
+            egui::Rect::from_min_max(
+                egui::pos2(left + corner, bottom - edge),
+                egui::pos2(right - corner, bottom),
+            ),
+            egui::ResizeDirection::South,
+            egui::CursorIcon::ResizeSouth,
+        ),
+        (
+            "resize_e",
+            egui::Rect::from_min_max(
+                egui::pos2(right - edge, top + corner),
+                egui::pos2(right, bottom - corner),
+            ),
+            egui::ResizeDirection::East,
+            egui::CursorIcon::ResizeEast,
+        ),
+        (
+            "resize_w",
+            egui::Rect::from_min_max(
+                egui::pos2(left, top + corner),
+                egui::pos2(left + edge, bottom - corner),
+            ),
+            egui::ResizeDirection::West,
+            egui::CursorIcon::ResizeWest,
+        ),
+        (
+            "resize_ne",
+            egui::Rect::from_min_max(
+                egui::pos2(right - corner, top),
+                egui::pos2(right, top + corner),
+            ),
+            egui::ResizeDirection::NorthEast,
+            egui::CursorIcon::ResizeNorthEast,
+        ),
+        (
+            "resize_nw",
+            egui::Rect::from_min_max(
+                egui::pos2(left, top),
+                egui::pos2(left + corner, top + corner),
+            ),
+            egui::ResizeDirection::NorthWest,
+            egui::CursorIcon::ResizeNorthWest,
+        ),
+        (
+            "resize_se",
+            egui::Rect::from_min_max(
+                egui::pos2(right - corner, bottom - corner),
+                egui::pos2(right, bottom),
+            ),
+            egui::ResizeDirection::SouthEast,
+            egui::CursorIcon::ResizeSouthEast,
+        ),
+        (
+            "resize_sw",
+            egui::Rect::from_min_max(
+                egui::pos2(left, bottom - corner),
+                egui::pos2(left + corner, bottom),
+            ),
+            egui::ResizeDirection::SouthWest,
+            egui::CursorIcon::ResizeSouthWest,
+        ),
+    ];
+
+    for (id, handle_rect, direction, cursor) in handles {
+        let response = ui
+            .interact(handle_rect, ui.id().with(id), egui::Sense::click_and_drag())
+            .on_hover_cursor(cursor);
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
         }
     }
 }

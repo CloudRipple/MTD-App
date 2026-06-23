@@ -10,8 +10,8 @@ use crate::{
     models::{JobSnapshot, PreviewMode, Segment},
     platform::open_path,
     theme::{
-        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
-        preview_frame,
+        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, WINDOW_CORNER_RADIUS,
+        panel_frame, preview_frame,
     },
     video_preview::{VideoPreview, active_segment_at, fallback_duration},
 };
@@ -28,23 +28,39 @@ const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
     VIDEO_HEADER_HEIGHT + 8.0 + VIDEO_CONTROLS_HEIGHT + 8.0 + VIDEO_CURRENT_SUBTITLE_HEIGHT;
 const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
 const OUTPUT_CHIP_GAP: f32 = 12.0;
+#[cfg(not(target_os = "macos"))]
+const TITLE_BAR_HEIGHT: f32 = 38.0;
+#[cfg(not(target_os = "macos"))]
+const TITLE_MENU_WIDTH: f32 = 132.0;
+#[cfg(not(target_os = "macos"))]
+const TITLE_BUTTON_WIDTH: f32 = 46.0;
+#[cfg(not(target_os = "macos"))]
+const TITLE_CONTROLS_WIDTH: f32 = TITLE_BUTTON_WIDTH * 3.0;
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Clone, Copy)]
+enum TitleBarIcon {
+    Minimize,
+    Maximize,
+    Restore,
+    Close,
+}
 
 impl MtdApp {
     pub(crate) fn render_header(&mut self, ui: &mut egui::Ui) {
+        #[cfg(target_os = "macos")]
+        self.render_content_header(ui);
+
+        #[cfg(not(target_os = "macos"))]
+        self.render_custom_title_bar(ui);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn render_content_header(&mut self, ui: &mut egui::Ui) {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::drag());
         if response.drag_started_by(egui::PointerButton::Primary) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            let menu_rect = egui::Rect::from_min_size(rect.min, egui::vec2(120.0, rect.height()));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    self.render_file_menu(ui);
-                });
-            });
         }
 
         ui.painter().text(
@@ -54,6 +70,79 @@ impl MtdApp {
             egui::FontId::proportional(18.0),
             INK,
         );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn render_custom_title_bar(&mut self, ui: &mut egui::Ui) {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), TITLE_BAR_HEIGHT),
+            egui::Sense::hover(),
+        );
+        ui.painter().line_segment(
+            [rect.left_bottom(), rect.right_bottom()],
+            egui::Stroke::new(1.0, BORDER),
+        );
+
+        let menu_rect = egui::Rect::from_min_size(
+            rect.min + egui::vec2(14.0, 0.0),
+            egui::vec2(TITLE_MENU_WIDTH, rect.height()),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                self.render_file_menu(ui);
+            });
+        });
+
+        let controls_min = egui::pos2(rect.max.x - TITLE_CONTROLS_WIDTH, rect.min.y);
+        let drag_rect = egui::Rect::from_min_max(
+            egui::pos2(menu_rect.max.x, rect.min.y),
+            egui::pos2(controls_min.x, rect.max.y),
+        );
+        let drag_response = ui.interact(
+            drag_rect,
+            ui.id().with("custom_title_bar_drag"),
+            egui::Sense::click_and_drag(),
+        );
+        let maximized = ui
+            .ctx()
+            .input(|input| input.viewport().maximized.unwrap_or(false));
+        if drag_response.double_clicked() {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        } else if drag_response.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "MTD 字幕工作台",
+            egui::FontId::proportional(16.0),
+            INK,
+        );
+
+        let minimize_rect = egui::Rect::from_min_size(
+            controls_min,
+            egui::vec2(TITLE_BUTTON_WIDTH, TITLE_BAR_HEIGHT),
+        );
+        let maximize_rect = minimize_rect.translate(egui::vec2(TITLE_BUTTON_WIDTH, 0.0));
+        let close_rect = maximize_rect.translate(egui::vec2(TITLE_BUTTON_WIDTH, 0.0));
+        if title_bar_button(ui, minimize_rect, "minimize", TitleBarIcon::Minimize).clicked() {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        let maximize_icon = if maximized {
+            TitleBarIcon::Restore
+        } else {
+            TitleBarIcon::Maximize
+        };
+        if title_bar_button(ui, maximize_rect, "maximize", maximize_icon).clicked() {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+        if title_bar_button(ui, close_rect, "close", TitleBarIcon::Close).clicked() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -818,6 +907,112 @@ impl MtdApp {
             self.update_segment(index, start, end, speaker, text, clear_time_errors);
         }
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn title_bar_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id_source: &'static str,
+    icon: TitleBarIcon,
+) -> egui::Response {
+    let response = ui.interact(rect, ui.id().with(id_source), egui::Sense::click());
+    let close = matches!(icon, TitleBarIcon::Close);
+    let fill = if response.hovered() {
+        if close {
+            DANGER
+        } else {
+            egui::Color32::from_rgb(226, 233, 237)
+        }
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let color = if close && response.hovered() {
+        egui::Color32::WHITE
+    } else {
+        MUTED
+    };
+    let (fill_rect, corner_radius) = if close {
+        (
+            rect,
+            egui::CornerRadius {
+                ne: WINDOW_CORNER_RADIUS,
+                ..egui::CornerRadius::ZERO
+            },
+        )
+    } else {
+        (
+            rect.shrink2(egui::vec2(4.0, 5.0)),
+            egui::CornerRadius::same(7),
+        )
+    };
+    ui.painter().rect_filled(fill_rect, corner_radius, fill);
+    paint_title_bar_icon(ui.painter(), rect, icon, color);
+    response
+}
+
+#[cfg(not(target_os = "macos"))]
+fn paint_title_bar_icon(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    icon: TitleBarIcon,
+    color: egui::Color32,
+) {
+    let icon_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(14.0, 14.0));
+    let center = icon_rect.center();
+    let stroke_width = 1.45;
+    let stroke = egui::Stroke::new(stroke_width, color);
+    match icon {
+        TitleBarIcon::Minimize => {
+            let bar = egui::Rect::from_center_size(
+                center + egui::vec2(0.0, 3.5),
+                egui::vec2(11.0, stroke_width),
+            );
+            painter.rect_filled(bar, 1.0, color);
+        }
+        TitleBarIcon::Maximize => {
+            let box_rect = egui::Rect::from_center_size(center, egui::vec2(10.5, 10.5));
+            painter.rect_stroke(box_rect, 2.0, stroke, egui::StrokeKind::Inside);
+        }
+        TitleBarIcon::Restore => {
+            let back =
+                egui::Rect::from_center_size(center + egui::vec2(2.0, -2.0), egui::vec2(9.0, 9.0));
+            let front =
+                egui::Rect::from_center_size(center + egui::vec2(-2.0, 2.0), egui::vec2(9.0, 9.0));
+            painter.rect_stroke(back, 2.0, stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(front, 2.0, stroke, egui::StrokeKind::Inside);
+        }
+        TitleBarIcon::Close => {
+            rounded_line(
+                painter,
+                center + egui::vec2(-5.0, -5.0),
+                center + egui::vec2(5.0, 5.0),
+                stroke_width,
+                color,
+            );
+            rounded_line(
+                painter,
+                center + egui::vec2(5.0, -5.0),
+                center + egui::vec2(-5.0, 5.0),
+                stroke_width,
+                color,
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn rounded_line(
+    painter: &egui::Painter,
+    start: egui::Pos2,
+    end: egui::Pos2,
+    width: f32,
+    color: egui::Color32,
+) {
+    painter.line_segment([start, end], egui::Stroke::new(width, color));
+    let radius = width * 0.5;
+    painter.circle_filled(start, radius, color);
+    painter.circle_filled(end, radius, color);
 }
 
 fn field_label(ui: &mut egui::Ui, text: &str) {

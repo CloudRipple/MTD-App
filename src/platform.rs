@@ -54,6 +54,8 @@ fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
         .with_app_id("cn.mtd.subtitle-app")
         .with_title("MTD 字幕工作台")
+        .with_decorations(false)
+        .with_transparent(true)
         .with_inner_size([1440.0, 930.0])
         .with_min_inner_size([1180.0, 820.0])
 }
