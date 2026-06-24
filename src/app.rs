@@ -148,6 +148,7 @@ impl eframe::App for MtdApp {
             self.burning = false;
         }
         native_menu::install_file_menu();
+        native_menu::adjust_window_controls();
         if native_menu::take_open_project_request() {
             self.open_project_dialog();
         }

@@ -26,6 +26,7 @@ const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
 const VIDEO_CURRENT_SUBTITLE_HEIGHT: f32 = 72.0;
 const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
     VIDEO_HEADER_HEIGHT + 8.0 + VIDEO_CONTROLS_HEIGHT + 8.0 + VIDEO_CURRENT_SUBTITLE_HEIGHT;
+const VIDEO_PREVIEW_ASPECT: f32 = 16.0 / 9.0;
 const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
 const OUTPUT_CHIP_GAP: f32 = 12.0;
 #[cfg(not(target_os = "macos"))]
@@ -57,19 +58,15 @@ impl MtdApp {
 
     #[cfg(target_os = "macos")]
     fn render_content_header(&mut self, ui: &mut egui::Ui) {
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::drag());
-        if response.drag_started_by(egui::PointerButton::Primary) {
+        let (_, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), 32.0),
+            egui::Sense::click_and_drag(),
+        );
+        if response.double_clicked() {
+            crate::native_menu::zoom_main_window();
+        } else if response.drag_started_by(egui::PointerButton::Primary) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
-
-        ui.painter().text(
-            rect.center_top() + egui::vec2(0.0, 2.0),
-            egui::Align2::CENTER_TOP,
-            "MTD 字幕工作台",
-            egui::FontId::proportional(18.0),
-            INK,
-        );
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -621,7 +618,12 @@ impl MtdApp {
 
     pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
         let available = ui.available_width();
-        let video_width = (available * 0.44).clamp(460.0, 620.0);
+        let gap = 12.0;
+        let content_width = (available - gap).max(0.0);
+        let mut video_width = (content_width * 0.42).max(420.0);
+        if content_width > 840.0 {
+            video_width = video_width.min(content_width - 420.0);
+        }
         let panel_height = ui.available_height().max(260.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -629,7 +631,7 @@ impl MtdApp {
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| self.render_video_preview(ui, snapshot, panel_height),
             );
-            ui.add_space(12.0);
+            ui.add_space(gap);
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), panel_height),
                 egui::Layout::top_down(egui::Align::Min),
@@ -681,12 +683,11 @@ impl MtdApp {
             let active_segment = active_segment_at(&snapshot.segments, current_time);
 
             let video_width = ui.available_width();
-            let available_video_height = (ui.available_height() - VIDEO_REVIEW_CHROME_HEIGHT)
-                .clamp(96.0, video_width / 16.0 * 9.0);
-            let video_height = ((video_width / 16.0) * 9.0)
-                .min(available_video_height)
-                .max(96.0);
-            video_surface(ui, &self.video_preview, video_width, video_height);
+            let available_video_height =
+                (ui.available_height() - VIDEO_REVIEW_CHROME_HEIGHT).max(96.0);
+            let (surface_width, video_height) =
+                fitted_video_surface_size(video_width, available_video_height);
+            video_surface(ui, &self.video_preview, surface_width, video_height);
 
             ui.add_space(8.0);
             video_controls(ui, &mut self.video_preview, duration);
@@ -1610,8 +1611,21 @@ fn badge_text_width(text: &str) -> f32 {
         .max(42.0)
 }
 
+fn fitted_video_surface_size(max_width: f32, max_height: f32) -> (f32, f32) {
+    let max_width = max_width.max(1.0);
+    let max_height = max_height.max(1.0);
+    let height_from_width = max_width / VIDEO_PREVIEW_ASPECT;
+    if height_from_width <= max_height {
+        (max_width, height_from_width)
+    } else {
+        (max_height * VIDEO_PREVIEW_ASPECT, max_height)
+    }
+}
+
 fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: f32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let row_width = ui.available_width().max(width);
+    let (row_rect, _) = ui.allocate_exact_size(egui::vec2(row_width, height), egui::Sense::hover());
+    let rect = egui::Rect::from_center_size(row_rect.center(), egui::vec2(width, height));
     ui.painter().rect(
         rect,
         egui::CornerRadius::same(9),

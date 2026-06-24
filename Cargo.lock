@@ -2066,6 +2066,7 @@ name = "mtd-subtitle-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block2 0.5.1",
  "eframe",
  "egui",
  "objc2 0.5.2",

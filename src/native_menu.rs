@@ -1,17 +1,25 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        ptr::NonNull,
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
+    use block2::RcBlock;
     use objc2::{
         ClassType, DeclaredClass, declare_class, extern_methods, rc::Retained, runtime::AnyObject,
         runtime::NSObject, sel,
     };
     use objc2_app_kit::{
-        NSAboutPanelOptionCredits, NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem,
+        NSAboutPanelOptionCredits, NSApplication, NSEvent, NSEventMask, NSEventModifierFlags,
+        NSMenu, NSMenuItem, NSWindowButton,
     };
-    use objc2_foundation::{MainThreadMarker, NSAttributedString, NSDictionary, ns_string};
+    use objc2_foundation::{
+        MainThreadMarker, NSAttributedString, NSDictionary, NSPoint, ns_string,
+    };
 
     static INSTALLED: AtomicBool = AtomicBool::new(false);
+    static TITLEBAR_MONITOR_INSTALLED: AtomicBool = AtomicBool::new(false);
     static OPEN_PROJECT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
     declare_class!(
@@ -55,6 +63,7 @@ mod imp {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
+        install_titlebar_event_monitor();
         let Some(main_menu) = (unsafe { app.mainMenu() }) else {
             INSTALLED.store(false, Ordering::SeqCst);
             return;
@@ -88,6 +97,109 @@ mod imp {
         unsafe { main_menu.insertItem_atIndex(&file_menu_item, 1) };
 
         let _ = Retained::into_raw(target);
+    }
+
+    fn install_titlebar_event_monitor() {
+        if TITLEBAR_MONITOR_INSTALLED.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let block: RcBlock<dyn Fn(NonNull<NSEvent>) -> *mut NSEvent> = RcBlock::new(|event| {
+            handle_titlebar_double_click(event);
+            event.as_ptr()
+        });
+        let Some(monitor) = (unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::LeftMouseDown,
+                &block,
+            )
+        }) else {
+            TITLEBAR_MONITOR_INSTALLED.store(false, Ordering::SeqCst);
+            return;
+        };
+
+        let _ = Retained::into_raw(monitor);
+        std::mem::forget(block);
+    }
+
+    fn handle_titlebar_double_click(event: NonNull<NSEvent>) {
+        const TITLEBAR_HIT_HEIGHT: f64 = 40.0;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let event = unsafe { event.as_ref() };
+        if unsafe { event.clickCount() } < 2 {
+            return;
+        }
+        let Some(window) = (unsafe { event.window(mtm) }) else {
+            return;
+        };
+        let location = unsafe { event.locationInWindow() };
+        let frame = window.frame();
+        if location.y >= frame.size.height - TITLEBAR_HIT_HEIGHT {
+            window.zoom(None);
+        }
+    }
+
+    pub(super) fn adjust_window_controls() {
+        position_window_controls();
+    }
+
+    fn position_window_controls() -> bool {
+        const LEFT_INSET: f64 = 24.0;
+        const TOP_INSET: f64 = 18.0;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return false;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        let Some(window) = (unsafe { app.mainWindow() }).or_else(|| app.keyWindow()) else {
+            return false;
+        };
+
+        let Some(close) = window.standardWindowButton(NSWindowButton::NSWindowCloseButton) else {
+            return false;
+        };
+        let Some(minimize) = window.standardWindowButton(NSWindowButton::NSWindowMiniaturizeButton)
+        else {
+            return false;
+        };
+        let Some(zoom) = window.standardWindowButton(NSWindowButton::NSWindowZoomButton) else {
+            return false;
+        };
+        let Some(button_container) = (unsafe { close.superview() }) else {
+            return false;
+        };
+
+        let close_frame = close.frame();
+        let minimize_frame = minimize.frame();
+        let container_bounds = button_container.bounds();
+        let button_gap =
+            (minimize_frame.origin.x - close_frame.origin.x).max(close_frame.size.width + 6.0);
+        let button_y = if button_container.isFlipped() {
+            TOP_INSET
+        } else {
+            (container_bounds.size.height - TOP_INSET - close_frame.size.height).max(0.0)
+        };
+
+        unsafe {
+            close.setFrameOrigin(NSPoint::new(LEFT_INSET, button_y));
+            minimize.setFrameOrigin(NSPoint::new(LEFT_INSET + button_gap, button_y));
+            zoom.setFrameOrigin(NSPoint::new(LEFT_INSET + button_gap * 2.0, button_y));
+        }
+
+        true
+    }
+
+    pub(super) fn zoom_main_window() {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        if let Some(window) = (unsafe { app.mainWindow() }).or_else(|| app.keyWindow()) {
+            window.zoom(None);
+        }
     }
 
     fn install_about_items(main_menu: &NSMenu, target: &AnyObject) {
@@ -137,7 +249,11 @@ mod imp {
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
+    pub(super) fn adjust_window_controls() {}
+
     pub(super) fn install_file_menu() {}
+
+    pub(super) fn zoom_main_window() {}
 
     pub(super) fn take_open_project_request() -> bool {
         false
@@ -146,6 +262,14 @@ mod imp {
 
 pub(crate) fn install_file_menu() {
     imp::install_file_menu();
+}
+
+pub(crate) fn adjust_window_controls() {
+    imp::adjust_window_controls();
+}
+
+pub(crate) fn zoom_main_window() {
+    imp::zoom_main_window();
 }
 
 pub(crate) fn take_open_project_request() -> bool {
