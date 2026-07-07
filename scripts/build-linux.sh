@@ -29,8 +29,8 @@ cp vendor/ffmpeg-src/LICENSE.md \
 cat > dist/linux/MTDSubtitleApp.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=MTD Subtitle App
-Name[zh_CN]=MTD 字幕工作台
+Name=MOSS Subtitle App
+Name[zh_CN]=MOSS 字幕工作台
 Exec=MTDSubtitleApp
 Terminal=false
 Categories=AudioVideo;Utility;

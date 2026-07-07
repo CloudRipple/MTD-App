@@ -40,7 +40,7 @@ pub(crate) fn native_options() -> eframe::NativeOptions {
 fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
         .with_app_id("cn.mtd.subtitle-app")
-        .with_title("MTD 字幕工作台")
+        .with_title("MOSS 字幕工作台")
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false)
@@ -53,7 +53,7 @@ fn app_viewport() -> egui::ViewportBuilder {
 fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
         .with_app_id("cn.mtd.subtitle-app")
-        .with_title("MTD 字幕工作台")
+        .with_title("MOSS 字幕工作台")
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1440.0, 930.0])

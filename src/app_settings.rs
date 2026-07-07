@@ -8,10 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 
-use crate::{
-    config::DEFAULT_MODEL,
-    platform::{default_output_dir, hide_command_window},
-};
+use crate::{config::DEFAULT_MODEL, platform::default_output_dir};
 
 const APP_DIR: &str = ".mtd-subtitle-app";
 const SETTINGS_FILE: &str = "app-settings.json";

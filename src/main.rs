@@ -24,7 +24,7 @@ use app::MtdApp;
 
 fn main() -> eframe::Result<()> {
     eframe::run_native(
-        "MTD 字幕工作台",
+        "MOSS 字幕工作台",
         platform::native_options(),
         Box::new(|cc| {
             platform::install_app_fonts(&cc.egui_ctx);

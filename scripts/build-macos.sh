@@ -105,9 +105,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key>
   <string>cn.mtd.subtitle-app</string>
   <key>CFBundleName</key>
-  <string>MTD Subtitle App</string>
+  <string>MOSS Subtitle App</string>
   <key>CFBundleDisplayName</key>
-  <string>MTD 字幕工作台</string>
+  <string>MOSS 字幕工作台</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

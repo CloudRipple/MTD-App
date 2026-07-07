@@ -10,8 +10,8 @@ use crate::{
     models::{JobSnapshot, PreviewMode, Segment},
     platform::open_path,
     theme::{
-        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, WINDOW_CORNER_RADIUS,
-        panel_frame, preview_frame,
+        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
+        preview_frame,
     },
     video_preview::{VideoPreview, active_segment_at, fallback_duration},
 };
@@ -113,7 +113,7 @@ impl MtdApp {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "MTD 字幕工作台",
+            "MOSS 字幕工作台",
             egui::FontId::proportional(16.0),
             INK,
         );
