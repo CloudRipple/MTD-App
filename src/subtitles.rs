@@ -1,7 +1,7 @@
 use std::{fs, io::Write, path::Path};
 
 use anyhow::{Context, Result, anyhow};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::models::Segment;
 
@@ -69,6 +69,43 @@ pub(crate) fn write_srt(path: &Path, segments: &[Segment], include_speaker: bool
 pub(crate) fn write_vtt(path: &Path, segments: &[Segment], include_speaker: bool) -> Result<()> {
     fs::write(path, render_vtt(segments, include_speaker)?)?;
     Ok(())
+}
+
+pub(crate) fn render_txt(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    ensure_valid_times(segments)?;
+    let mut output = String::new();
+    for segment in segments {
+        let text = if include_speaker && !segment.speaker.is_empty() {
+            format!("{}: {}", segment.speaker, segment.text)
+        } else {
+            segment.text.clone()
+        };
+        output.push_str(&format!(
+            "[{} - {}] {}\n",
+            srt_time(segment.start),
+            srt_time(segment.end),
+            text
+        ));
+    }
+    Ok(output)
+}
+
+pub(crate) fn render_subtitle_json(segments: &[Segment], include_speaker: bool) -> Result<String> {
+    ensure_valid_times(segments)?;
+    let value = json!({
+        "version": 1,
+        "include_speaker": include_speaker,
+        "segments": segments.iter().enumerate().map(|(index, segment)| {
+            json!({
+                "index": index + 1,
+                "start": segment.start,
+                "end": segment.end,
+                "speaker": segment.speaker,
+                "text": segment.text,
+            })
+        }).collect::<Vec<_>>(),
+    });
+    serde_json::to_string_pretty(&value).context("无法生成 JSON 字幕文本")
 }
 
 pub(crate) fn render_srt(segments: &[Segment], include_speaker: bool) -> Result<String> {
@@ -241,7 +278,9 @@ fn vtt_time(seconds: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_segments, render_srt, render_srt_preview};
+    use super::{
+        normalize_segments, render_srt, render_srt_preview, render_subtitle_json, render_txt,
+    };
     use crate::models::Segment;
     use serde_json::json;
 
@@ -261,6 +300,27 @@ mod tests {
         let srt = render_srt(&segments, true).expect("render srt");
 
         assert!(srt.contains("张三: 你好"));
+    }
+
+    #[test]
+    fn renders_portable_text_and_json_exports() {
+        let segments = vec![Segment {
+            start: 2.54,
+            end: 4.49,
+            raw_start: None,
+            raw_end: None,
+            start_valid: true,
+            end_valid: true,
+            speaker: "S01".to_owned(),
+            text: "Hello".to_owned(),
+        }];
+
+        let text = render_txt(&segments, true).expect("render txt");
+        let json = render_subtitle_json(&segments, true).expect("render json");
+
+        assert!(text.contains("[00:00:02,540 - 00:00:04,490] S01: Hello"));
+        assert!(json.contains("\"speaker\": \"S01\""));
+        assert!(json.contains("\"text\": \"Hello\""));
     }
 
     #[test]

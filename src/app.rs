@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    fs,
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -16,12 +17,15 @@ use crate::{
     config::{DEFAULT_MODEL, MODELS},
     fonts::{self, SubtitleFont},
     media::{SubtitleBurnOptions, burn_subtitles},
-    models::{JobSnapshot, PreviewMode},
+    models::{JobSnapshot, PreviewMode, SubtitleExportFormat},
     native_menu,
     pipeline::run_job,
     project::{load_project, save_project},
     secret_store::{self, ApiKeyStorage},
-    subtitles::{render_srt, render_srt_preview, write_srt, write_vtt},
+    subtitles::{
+        render_srt, render_srt_preview, render_subtitle_json, render_txt, render_vtt, write_srt,
+        write_vtt,
+    },
     theme::{BORDER, CANVAS, WINDOW_CORNER_RADIUS},
     video_preview::VideoPreview,
 };
@@ -503,6 +507,55 @@ impl MtdApp {
             && snapshot.subtitled_path.is_some()
     }
 
+    pub(crate) fn can_export_subtitles(&self, snapshot: &JobSnapshot) -> bool {
+        !snapshot.segments.is_empty()
+            && !snapshot
+                .segments
+                .iter()
+                .any(|segment| segment.has_invalid_time())
+    }
+
+    pub(crate) fn export_subtitle_file(&mut self, format: SubtitleExportFormat) {
+        let snapshot = self.job.lock().expect("job lock").clone();
+        if !self.can_export_subtitles(&snapshot) {
+            self.set_export_error("请先修正字幕时间轴后再导出");
+            return;
+        }
+
+        let default_name = default_export_file_name(&snapshot, format);
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("导出通用字幕文件")
+            .set_file_name(&default_name)
+            .add_filter(format.label(), &[format.extension()]);
+        if let Some(output_dir) = snapshot.output_dir.as_ref().or(Some(&self.output_dir)) {
+            dialog = dialog.set_directory(output_dir);
+        }
+        let Some(path) = dialog.save_file() else {
+            return;
+        };
+        let path = path_with_extension(path, format.extension());
+
+        let result = render_export_text(&snapshot, format)
+            .and_then(|text| fs::write(&path, text).map_err(anyhow::Error::from));
+        match result {
+            Ok(()) => {
+                let mut state = self.job.lock().expect("job lock");
+                state.status = format!("已导出 {} 字幕", format.label());
+                state.output_dir = path.parent().map(|path| path.to_path_buf());
+                state.error = None;
+            }
+            Err(error) => {
+                self.set_export_error(&format!("导出字幕失败：{error}"));
+            }
+        }
+    }
+
+    fn set_export_error(&mut self, message: &str) {
+        let mut state = self.job.lock().expect("job lock");
+        state.status = "导出失败".to_owned();
+        state.error = Some(message.to_owned());
+    }
+
     pub(crate) fn burn_video(&mut self) {
         let snapshot = self.job.lock().expect("job lock").clone();
         let (Some(input_video_path), Some(srt_path), Some(subtitled_path)) = (
@@ -637,6 +690,43 @@ fn choose_subtitle_font(fonts: &[SubtitleFont], saved: Option<&str>) -> Option<S
         .find(|font| font.family == "HarmonyOS Sans SC")
         .or_else(|| fonts.first())
         .map(|font| font.family.clone())
+}
+
+fn default_export_file_name(snapshot: &JobSnapshot, format: SubtitleExportFormat) -> String {
+    snapshot
+        .input_media_path
+        .as_ref()
+        .or(snapshot.input_video_path.as_ref())
+        .and_then(|path| path.file_stem())
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.trim().is_empty())
+        .map(|stem| format!("{stem}.{}", format.extension()))
+        .unwrap_or_else(|| format.file_name().to_owned())
+}
+
+fn path_with_extension(mut path: PathBuf, extension: &str) -> PathBuf {
+    let has_extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension));
+    if !has_extension {
+        path.set_extension(extension);
+    }
+    path
+}
+
+fn render_export_text(
+    snapshot: &JobSnapshot,
+    format: SubtitleExportFormat,
+) -> anyhow::Result<String> {
+    match format {
+        SubtitleExportFormat::Srt => render_srt(&snapshot.segments, snapshot.include_speaker),
+        SubtitleExportFormat::Vtt => render_vtt(&snapshot.segments, snapshot.include_speaker),
+        SubtitleExportFormat::Txt => render_txt(&snapshot.segments, snapshot.include_speaker),
+        SubtitleExportFormat::Json => {
+            render_subtitle_json(&snapshot.segments, snapshot.include_speaker)
+        }
+    }
 }
 
 fn sync_subtitle_outputs(state: &mut JobSnapshot) {

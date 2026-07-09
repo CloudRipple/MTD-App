@@ -7,7 +7,7 @@ use crate::{
     config::MODELS,
     job::update_job,
     media_types::{AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, supported_extensions},
-    models::{JobSnapshot, PreviewMode, Segment},
+    models::{JobSnapshot, PreviewMode, Segment, SubtitleExportFormat},
     platform::open_path,
     theme::{
         ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
@@ -730,6 +730,8 @@ impl MtdApp {
                             ui.ctx().copy_text(snapshot.preview.clone());
                         }
                         ui.add_space(8.0);
+                        self.render_export_menu(ui, snapshot);
+                        ui.add_space(8.0);
                         if has_preview && !speaker_labels.is_empty() {
                             self.render_speaker_editor(ui, &speaker_labels);
                             ui.add_space(8.0);
@@ -816,6 +818,38 @@ impl MtdApp {
                         self.apply_speaker_names();
                     }
                 });
+            });
+    }
+
+    fn render_export_menu(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+        let can_export = self.can_export_subtitles(snapshot);
+        let response = ui.add_enabled(can_export, egui::Button::new("导出字幕"));
+
+        egui::Popup::from_toggle_button_response(&response)
+            .width(220.0)
+            .gap(8.0)
+            .frame(settings_popup_frame())
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                ui.set_min_width(220.0);
+                ui.label(
+                    egui::RichText::new("通用字幕文件")
+                        .size(14.0)
+                        .strong()
+                        .color(INK),
+                );
+                ui.label(
+                    egui::RichText::new("导出当前已编辑的字幕内容")
+                        .size(12.0)
+                        .color(FAINT),
+                );
+                ui.add_space(8.0);
+                for format in SubtitleExportFormat::ALL {
+                    if export_format_row(ui, format).clicked() {
+                        self.export_subtitle_file(format);
+                    }
+                    ui.add_space(6.0);
+                }
             });
     }
 
@@ -1354,6 +1388,38 @@ fn font_option(ui: &mut egui::Ui, font: &str, selected: bool) -> egui::Response 
             ACCENT_DARK,
         );
     }
+    response
+}
+
+fn export_format_row(ui: &mut egui::Ui, format: SubtitleExportFormat) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 36.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let fill = if response.hovered() {
+        ACCENT_SOFT
+    } else {
+        egui::Color32::from_rgb(247, 250, 251)
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(8),
+        fill,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 10.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        format.label(),
+        egui::FontId::monospace(13.0),
+        ACCENT_DARK,
+    );
+    ui.painter().text(
+        egui::pos2(rect.right() - 10.0, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        format!(".{}", format.extension()),
+        egui::FontId::proportional(12.0),
+        MUTED,
+    );
     response
 }
 

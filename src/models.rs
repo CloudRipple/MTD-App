@@ -24,6 +24,45 @@ pub(crate) enum PreviewMode {
     Rendered,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SubtitleExportFormat {
+    Srt,
+    Vtt,
+    Txt,
+    Json,
+}
+
+impl SubtitleExportFormat {
+    pub(crate) const ALL: [Self; 4] = [Self::Srt, Self::Vtt, Self::Txt, Self::Json];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Srt => "SRT",
+            Self::Vtt => "VTT",
+            Self::Txt => "TXT",
+            Self::Json => "JSON",
+        }
+    }
+
+    pub(crate) fn extension(self) -> &'static str {
+        match self {
+            Self::Srt => "srt",
+            Self::Vtt => "vtt",
+            Self::Txt => "txt",
+            Self::Json => "json",
+        }
+    }
+
+    pub(crate) fn file_name(self) -> &'static str {
+        match self {
+            Self::Srt => "subtitles.srt",
+            Self::Vtt => "subtitles.vtt",
+            Self::Txt => "subtitles.txt",
+            Self::Json => "subtitles.json",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct JobSnapshot {
     pub(crate) status: String,
