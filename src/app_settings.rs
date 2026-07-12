@@ -21,6 +21,14 @@ pub(crate) struct AppSettings {
     pub(crate) include_speaker: bool,
     pub(crate) subtitle_font: Option<String>,
     pub(crate) subtitle_font_size: u32,
+    pub(crate) recent_projects: Vec<RecentProject>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecentProject {
+    pub(crate) path: PathBuf,
+    pub(crate) opened_at: u64,
+    pub(crate) status: String,
 }
 
 impl Default for AppSettings {
@@ -32,6 +40,7 @@ impl Default for AppSettings {
             include_speaker: true,
             subtitle_font: None,
             subtitle_font_size: 24,
+            recent_projects: Vec::new(),
         }
     }
 }
@@ -83,6 +92,29 @@ pub(crate) fn load_app_settings() -> Result<AppSettings> {
             .and_then(|size| u32::try_from(size).ok())
             .unwrap_or(24)
             .clamp(12, 96),
+        recent_projects: value
+            .get("recent_projects")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| {
+                let path = item
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .filter(|path| !path.trim().is_empty())?;
+                Some(RecentProject {
+                    path: PathBuf::from(path),
+                    opened_at: item.get("opened_at").and_then(Value::as_u64).unwrap_or(0),
+                    status: item
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .filter(|status| !status.trim().is_empty())
+                        .unwrap_or("转写完成")
+                        .to_owned(),
+                })
+            })
+            .take(6)
+            .collect(),
     })
 }
 
@@ -97,6 +129,11 @@ pub(crate) fn save_app_settings(settings: &AppSettings) -> Result<()> {
         "include_speaker": settings.include_speaker,
         "subtitle_font": settings.subtitle_font,
         "subtitle_font_size": settings.subtitle_font_size,
+        "recent_projects": settings.recent_projects.iter().map(|project| json!({
+            "path": project.path.display().to_string(),
+            "opened_at": project.opened_at,
+            "status": project.status,
+        })).collect::<Vec<_>>(),
     });
     write_private_file(&temp_path, serde_json::to_vec_pretty(&payload)?)?;
     fs::rename(&temp_path, &path)
@@ -187,5 +224,6 @@ mod tests {
         assert!(settings.include_speaker);
         assert!(settings.subtitle_font.is_none());
         assert_eq!(settings.subtitle_font_size, 24);
+        assert!(settings.recent_projects.is_empty());
     }
 }

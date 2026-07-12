@@ -4,6 +4,7 @@ use eframe::egui;
 
 use crate::{
     app::MtdApp,
+    app_settings::RecentProject,
     config::MODELS,
     job::update_job,
     media_types::{AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, supported_extensions},
@@ -13,7 +14,7 @@ use crate::{
         ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
         preview_frame,
     },
-    video_preview::{VideoPreview, active_segment_at, fallback_duration},
+    video_preview::{VideoPreview, fallback_duration},
 };
 
 const PREVIEW_CHILD_VERTICAL_INSET: f32 = 24.0;
@@ -23,9 +24,6 @@ const VIDEO_HEADER_HEIGHT: f32 = 30.0;
 const VIDEO_BUTTON_WIDTH: f32 = 58.0;
 const VIDEO_TIME_WIDTH: f32 = 76.0;
 const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
-const VIDEO_CURRENT_SUBTITLE_HEIGHT: f32 = 72.0;
-const VIDEO_REVIEW_CHROME_HEIGHT: f32 =
-    VIDEO_HEADER_HEIGHT + 8.0 + VIDEO_CONTROLS_HEIGHT + 8.0 + VIDEO_CURRENT_SUBTITLE_HEIGHT;
 const VIDEO_PREVIEW_ASPECT: f32 = 16.0 / 9.0;
 const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
 const OUTPUT_CHIP_GAP: f32 = 12.0;
@@ -158,8 +156,14 @@ impl MtdApp {
         });
     }
 
-    pub(crate) fn render_workspace(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
+    pub(crate) fn render_workspace(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: &JobSnapshot,
+        height: f32,
+    ) {
         panel_frame().show(ui, |ui| {
+            ui.set_min_height(review_panel_body_height(height));
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("任务").strong().size(16.0).color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -168,27 +172,77 @@ impl MtdApp {
             });
 
             ui.add_space(10.0);
-            ui.horizontal_top(|ui| {
-                let available = ui.available_width();
-                let input_width = (available * 0.46).clamp(380.0, 540.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(input_width, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| self.render_file_inputs(ui),
-                );
-                ui.add_space(14.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| self.render_status_cluster(ui, snapshot),
-                );
-            });
+            self.render_file_inputs(ui);
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(10.0);
+            self.render_status_cluster(ui, snapshot);
+            let remaining = ui.available_height();
+            if remaining > 150.0 {
+                let history_height = (remaining - 20.0).clamp(130.0, 270.0);
+                ui.add_space(20.0);
+                self.render_recent_projects(ui, history_height);
+            }
         });
     }
 
-    fn render_file_inputs(&mut self, ui: &mut egui::Ui) {
-        field_label(ui, "输入音频或视频");
+    fn render_recent_projects(&mut self, ui: &mut egui::Ui, height: f32) {
         ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("历史项目")
+                    .size(14.0)
+                    .strong()
+                    .color(INK),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(!self.recent_projects.is_empty(), egui::Button::new("清除"))
+                    .clicked()
+                {
+                    self.clear_recent_projects();
+                }
+            });
+        });
+        ui.add_space(6.0);
+
+        if self.recent_projects.is_empty() {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgb(248, 250, 251))
+                .corner_radius(7.0)
+                .inner_margin(egui::Margin::symmetric(10, 12))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("生成或打开项目后会显示在这里")
+                            .size(12.0)
+                            .color(FAINT),
+                    );
+                });
+            return;
+        }
+
+        let projects = self.recent_projects.clone();
+        let mut selected = None;
+        egui::ScrollArea::vertical()
+            .id_salt("recent-projects-scroll")
+            .max_height((height - 34.0).max(80.0))
+            .show(ui, |ui| {
+                for project in &projects {
+                    let available = project.path.is_file();
+                    let response = recent_project_row(ui, project, available);
+                    if available && response.clicked() {
+                        selected = Some(project.path.clone());
+                    }
+                    ui.add_space(5.0);
+                }
+            });
+        if let Some(path) = selected {
+            self.load_project_file(path);
+        }
+    }
+
+    fn render_file_inputs(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            inline_config_label(ui, "输入媒体");
             let text = self
                 .video_path
                 .as_ref()
@@ -196,10 +250,10 @@ impl MtdApp {
                 .and_then(|name| name.to_str())
                 .map(str::to_owned)
                 .unwrap_or_else(|| "尚未选择媒体文件".to_owned());
-            let pill_width = path_pill_width(ui, 92.0);
+            let pill_width = path_pill_width(ui, 76.0);
             path_pill(ui, &text, self.video_path.is_some(), pill_width);
             if ui
-                .add_sized([92.0, 32.0], egui::Button::new("选择"))
+                .add_sized([76.0, 32.0], egui::Button::new("选择"))
                 .clicked()
             {
                 let media_extensions = supported_extensions();
@@ -216,13 +270,13 @@ impl MtdApp {
         });
 
         ui.add_space(8.0);
-        field_label(ui, "输出目录");
         ui.horizontal(|ui| {
+            inline_config_label(ui, "输出目录");
             let output_text = self.output_dir.display().to_string();
-            let pill_width = path_pill_width(ui, 92.0);
+            let pill_width = path_pill_width(ui, 76.0);
             path_pill(ui, &output_text, true, pill_width);
             if ui
-                .add_sized([92.0, 32.0], egui::Button::new("更改"))
+                .add_sized([76.0, 32.0], egui::Button::new("更改"))
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -233,7 +287,7 @@ impl MtdApp {
             }
         });
 
-        ui.add_space(8.0);
+        ui.add_space(7.0);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             inline_field_label(ui, "字幕字体");
@@ -242,7 +296,7 @@ impl MtdApp {
         });
         self.render_font_selector(ui);
 
-        ui.add_space(8.0);
+        ui.add_space(7.0);
         let hint = if self.api_key.trim().is_empty() {
             "转写设置里填写 API Key 后即可开始。"
         } else {
@@ -313,6 +367,7 @@ impl MtdApp {
                         .map(|font| font.family.clone())
                         .collect::<Vec<_>>();
                     egui::ScrollArea::vertical()
+                        .id_salt("subtitle-fonts-scroll")
                         .max_height(220.0)
                         .show(ui, |ui| {
                             for font_name in font_names {
@@ -565,42 +620,52 @@ impl MtdApp {
             });
         });
 
-        ui.add_space(7.0);
         let status_color = if snapshot.error.is_some() {
             DANGER
         } else {
             INK
         };
-        ui.label(
-            egui::RichText::new(&snapshot.status)
-                .size(17.0)
-                .strong()
-                .color(status_color),
-        );
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new(stage_message(snapshot.progress, snapshot.done))
-                .size(13.0)
-                .color(FAINT),
+        ui.add_space(7.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 56.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(&snapshot.status)
+                            .size(17.0)
+                            .strong()
+                            .color(status_color),
+                    );
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new(stage_message(snapshot.progress, snapshot.done))
+                            .size(13.0)
+                            .color(FAINT),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.render_start_button(ui);
+                });
+            },
         );
 
         ui.add_space(8.0);
         progress_track(ui, snapshot.progress, snapshot.error.is_some());
 
-        ui.add_space(12.0);
-        self.render_action_row(ui, snapshot);
-
         ui.add_space(10.0);
         detail_grid(ui, snapshot);
 
-        if let Some(path) = &snapshot.output_dir {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("输出").size(13.0).color(MUTED));
-                if ui.button("打开输出目录").clicked() {
-                    let _ = open_path(path);
-                }
-            });
+        let output_path = snapshot.output_dir.as_ref().unwrap_or(&self.output_dir);
+        ui.add_space(8.0);
+        if ui
+            .add_sized(
+                [ui.available_width(), 32.0],
+                egui::Button::new("打开输出目录"),
+            )
+            .clicked()
+        {
+            let _ = open_path(output_path);
         }
         if let Some(error) = &snapshot.error {
             ui.add_space(8.0);
@@ -608,152 +673,134 @@ impl MtdApp {
         }
     }
 
-    fn render_action_row(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-        ui.horizontal(|ui| {
-            self.render_start_button(ui);
-            ui.add_space(8.0);
-            self.render_burn_button(ui, snapshot);
-        });
-    }
-
     pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-        let available = ui.available_width();
-        let gap = 12.0;
-        let content_width = (available - gap).max(0.0);
-        let mut video_width = (content_width * 0.42).max(420.0);
-        if content_width > 840.0 {
-            video_width = video_width.min(content_width - 420.0);
-        }
         let panel_height = ui.available_height().max(260.0);
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(video_width, panel_height),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| self.render_video_preview(ui, snapshot, panel_height),
-            );
-            ui.add_space(gap);
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), panel_height),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| self.render_preview(ui, snapshot, panel_height),
-            );
+        preview_frame().show(ui, |ui| {
+            ui.set_min_height(review_panel_body_height(panel_height));
+            self.render_media_review(ui, snapshot, panel_height);
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(8.0);
+            let subtitle_height = ui.available_height().max(140.0);
+            self.render_subtitle_review(ui, snapshot, subtitle_height);
         });
     }
 
-    fn render_video_preview(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
-        preview_frame().show(ui, |ui| {
-            ui.set_min_height(review_panel_body_height(height));
-            let label = if self.video_preview.is_playing() {
-                "播放中"
-            } else if self.video_preview.is_pending() {
-                "预渲染"
-            } else if self.video_preview.has_texture() {
-                "可检查"
+    fn render_media_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
+        let has_media = snapshot.input_media_path.is_some() || snapshot.input_video_path.is_some();
+        let has_video = snapshot.input_video_path.is_some();
+        let label = if self.video_preview.is_playing() {
+            "播放中"
+        } else if self.video_preview.is_pending() {
+            "预渲染"
+        } else if !snapshot.segments.is_empty() {
+            "可检查"
+        } else {
+            "待预览"
+        };
+        media_review_header(
+            ui,
+            if !has_media {
+                "媒体预览"
+            } else if has_video {
+                "视频预览"
             } else {
-                "待预览"
-            };
-            video_preview_header(ui, label);
-            ui.add_space(8.0);
+                "音频预览"
+            },
+            label,
+        );
+        ui.add_space(6.0);
 
-            let (Some(video_path), Some(srt_path)) = (
-                snapshot.input_video_path.as_deref(),
-                snapshot.srt_path.as_deref(),
-            ) else {
-                video_empty_state(ui, "当前任务没有可播放的视频预览");
-                return;
-            };
-            if snapshot.segments.is_empty() {
-                video_empty_state(ui, "生成字幕后可在这里播放带字幕的视频");
-                return;
-            }
+        let media_path = snapshot
+            .input_video_path
+            .as_deref()
+            .or(snapshot.input_media_path.as_deref());
+        let (Some(media_path), Some(srt_path)) = (media_path, snapshot.srt_path.as_deref()) else {
+            media_empty_surface(ui, "选择媒体并生成字幕后可在这里播放检查", height);
+            return;
+        };
+        if snapshot.segments.is_empty() {
+            media_empty_surface(ui, "生成字幕后可在这里播放检查", height);
+            return;
+        }
 
-            self.video_preview
-                .prepare(ui.ctx(), video_path, srt_path, &snapshot.segments);
-            let fallback_duration = fallback_duration(&snapshot.segments);
-            self.video_preview.update_playback(fallback_duration);
-            if self.video_preview.is_playing() {
-                ui.ctx().request_repaint();
-            }
-            self.video_preview
-                .ensure_cache(ui.ctx(), self.subtitle_burn_options());
-            self.video_preview.sync_frame(ui.ctx());
+        self.video_preview.prepare(
+            ui.ctx(),
+            media_path,
+            srt_path,
+            has_video,
+            &snapshot.segments,
+        );
+        let fallback_duration = fallback_duration(&snapshot.segments);
+        self.video_preview.update_playback(fallback_duration);
+        if self.video_preview.is_playing() {
+            ui.ctx().request_repaint();
+        }
+        self.video_preview
+            .ensure_cache(ui.ctx(), self.subtitle_burn_options());
+        self.video_preview.sync_frame(ui.ctx());
 
-            let current_time = self.video_preview.current_time();
-            let duration = self.video_preview.duration().unwrap_or(fallback_duration);
-            let active_segment = active_segment_at(&snapshot.segments, current_time);
-
-            let video_width = ui.available_width();
-            let available_video_height =
-                (ui.available_height() - VIDEO_REVIEW_CHROME_HEIGHT).max(96.0);
-            let (surface_width, video_height) =
-                fitted_video_surface_size(video_width, available_video_height);
-            video_surface(ui, &self.video_preview, surface_width, video_height);
-
-            ui.add_space(8.0);
-            video_controls(ui, &mut self.video_preview, duration);
-
-            ui.add_space(8.0);
-            current_subtitle_card(
-                ui,
-                active_segment,
-                current_time,
-                VIDEO_CURRENT_SUBTITLE_HEIGHT,
-            );
-        });
+        let duration = self.video_preview.duration().unwrap_or(fallback_duration);
+        let max_video_height = (height * 0.54).clamp(300.0, 400.0);
+        let (surface_width, surface_height) =
+            fitted_video_surface_size(ui.available_width(), max_video_height);
+        media_surface(
+            ui,
+            &self.video_preview,
+            surface_width,
+            surface_height,
+            has_video,
+        );
+        ui.add_space(6.0);
+        video_controls(ui, &mut self.video_preview, duration);
     }
 
-    pub(crate) fn render_preview(
-        &mut self,
-        ui: &mut egui::Ui,
-        snapshot: &JobSnapshot,
-        height: f32,
-    ) {
-        preview_frame().show(ui, |ui| {
-            ui.set_min_height(review_panel_body_height(height));
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), 28.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.label(
-                        egui::RichText::new("字幕预览")
-                            .strong()
-                            .size(16.0)
-                            .color(INK),
-                    );
-                    let speaker_labels = unique_speaker_labels(&snapshot.segments);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let has_preview = has_subtitle_preview(&snapshot.preview);
-                        if ui
-                            .add_enabled(has_preview, egui::Button::new("复制字幕"))
-                            .clicked()
-                        {
-                            ui.ctx().copy_text(snapshot.preview.clone());
-                        }
-                        ui.add_space(8.0);
-                        self.render_export_menu(ui, snapshot);
-                        ui.add_space(8.0);
-                        if has_preview && !speaker_labels.is_empty() {
-                            self.render_speaker_editor(ui, &speaker_labels);
-                            ui.add_space(8.0);
-                        }
-                        preview_mode_switch(ui, &mut self.preview_mode);
-                    });
-                },
-            );
-            ui.add_space(6.0);
-            let content_height = (ui.available_height() - 8.0).max(112.0);
-
-            if has_subtitle_preview(&snapshot.preview) {
-                match self.preview_mode {
-                    PreviewMode::Raw => raw_preview(ui, &snapshot.preview, content_height),
-                    PreviewMode::Rendered => {
-                        self.render_rendered_preview(ui, &snapshot.segments, content_height);
+    fn render_subtitle_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 28.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.label(
+                    egui::RichText::new("字幕预览")
+                        .strong()
+                        .size(16.0)
+                        .color(INK),
+                );
+                let speaker_labels = unique_speaker_labels(&snapshot.segments);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let has_preview = has_subtitle_preview(&snapshot.preview);
+                    self.render_burn_button(ui, snapshot);
+                    ui.add_space(8.0);
+                    if ui
+                        .add_enabled(has_preview, egui::Button::new("复制字幕"))
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(snapshot.preview.clone());
                     }
+                    ui.add_space(8.0);
+                    self.render_export_menu(ui, snapshot);
+                    ui.add_space(8.0);
+                    if has_preview && !speaker_labels.is_empty() {
+                        self.render_speaker_editor(ui, &speaker_labels);
+                        ui.add_space(8.0);
+                    }
+                    preview_mode_switch(ui, &mut self.preview_mode);
+                });
+            },
+        );
+        ui.add_space(8.0);
+        let content_height = (height - 36.0).max(112.0);
+
+        if has_subtitle_preview(&snapshot.preview) {
+            match self.preview_mode {
+                PreviewMode::Raw => raw_preview(ui, &snapshot.preview, content_height),
+                PreviewMode::Rendered => {
+                    self.render_rendered_preview(ui, &snapshot.segments, content_height);
                 }
-            } else {
-                empty_preview(ui, content_height);
             }
-        });
+        } else {
+            empty_preview(ui, content_height);
+        }
     }
 
     fn render_speaker_editor(&mut self, ui: &mut egui::Ui, speakers: &[String]) {
@@ -917,7 +964,11 @@ impl MtdApp {
 
         let speaker_names = self.speaker_names.clone();
         let mut edits = Vec::new();
+        let current_time = self.video_preview.current_time();
+        let active_index = snapshot_active_segment_index(segments, current_time);
+        let follow_playback = self.video_preview.is_playing();
         egui::ScrollArea::vertical()
+            .id_salt("rendered-subtitles-scroll")
             .max_height(content_height)
             .show(ui, |ui| {
                 ui.set_min_height(content_height);
@@ -929,6 +980,8 @@ impl MtdApp {
                         segment,
                         &speaker_names,
                         &mut self.time_edits,
+                        active_index == Some(index),
+                        follow_playback,
                     ) {
                         edits.push((index, start, end, speaker, text, clear_time_errors));
                     }
@@ -1062,6 +1115,14 @@ fn inline_field_label(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+fn inline_config_label(ui: &mut egui::Ui, text: &str) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(60.0, 32.0),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| field_label(ui, text),
+    );
+}
+
 fn path_pill_width(ui: &egui::Ui, trailing_button_width: f32) -> f32 {
     (ui.available_width() - trailing_button_width - ui.spacing().item_spacing.x).max(160.0)
 }
@@ -1166,10 +1227,10 @@ fn settings_popup_frame() -> egui::Frame {
             1.0,
             egui::Color32::from_rgb(204, 216, 222),
         ))
-        .corner_radius(12.0)
+        .corner_radius(10.0)
         .shadow(egui::epaint::Shadow {
-            offset: [0, 10],
-            blur: 22,
+            offset: [0, 4],
+            blur: 8,
             spread: 0,
             color: egui::Color32::from_black_alpha(36),
         })
@@ -1493,38 +1554,151 @@ fn progress_track(ui: &mut egui::Ui, progress: f32, is_error: bool) {
 }
 
 fn detail_grid(ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-    let spacing = 8.0;
-    let card_width = ((ui.available_width() - spacing * 2.0) / 3.0).max(96.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = spacing;
-        detail_cell(ui, "任务 ID", &snapshot.task_id, card_width);
-        detail_cell(ui, "文件 ID", &snapshot.file_id, card_width);
-        detail_cell(ui, "Token", &snapshot.usage, card_width);
-    });
+    let full_width = ui.available_width();
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(248, 250, 251))
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(10, 7))
+        .show(ui, |ui| {
+            ui.set_width((full_width - 20.0).max(0.0));
+            let spacing = 12.0;
+            let separator_width = 1.0;
+            let content_width = ui.available_width() - spacing * 4.0 - separator_width * 2.0;
+            let cell_width = (content_width / 3.0).max(88.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                detail_cell(ui, "任务 ID", &snapshot.task_id, cell_width);
+                detail_separator(ui);
+                detail_cell(ui, "文件 ID", &snapshot.file_id, cell_width);
+                detail_separator(ui);
+                detail_cell(ui, "Token", &snapshot.usage, cell_width);
+            });
+        });
 }
 
 fn detail_cell(ui: &mut egui::Ui, label: &str, value: &str, width: f32) {
     let display_value = compact_detail_value(value);
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(247, 250, 251))
-        .stroke(egui::Stroke::new(
-            1.0,
-            egui::Color32::from_rgb(226, 233, 236),
-        ))
-        .corner_radius(7.0)
-        .inner_margin(egui::Margin::symmetric(9, 6))
-        .show(ui, |ui| {
-            ui.set_width((width - 18.0).max(72.0));
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(label).size(12.0).color(FAINT));
-                ui.label(
-                    egui::RichText::new(display_value)
-                        .monospace()
-                        .size(12.0)
-                        .color(if value == "-" { FAINT } else { MUTED }),
-                );
-            });
-        });
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 36.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.label(egui::RichText::new(label).size(11.0).color(FAINT));
+            ui.label(
+                egui::RichText::new(display_value)
+                    .monospace()
+                    .size(12.0)
+                    .color(if value == "-" { FAINT } else { MUTED }),
+            );
+        },
+    );
+}
+
+fn detail_separator(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 34.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, BORDER);
+}
+
+fn recent_project_row(
+    ui: &mut egui::Ui,
+    project: &RecentProject,
+    available: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), 46.0),
+        if available {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    let fill = if response.hovered() && available {
+        ACCENT_SOFT
+    } else {
+        egui::Color32::from_rgb(248, 250, 251)
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(7), fill);
+
+    let name = recent_project_name(&project.path);
+    let primary = if available { INK } else { FAINT };
+    let status_width = recent_status_width(&project.status);
+    let status_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.right() - status_width * 0.5 - 10.0, rect.center().y),
+        egui::vec2(status_width, 24.0),
+    );
+    let name_clip =
+        egui::Rect::from_min_max(rect.min, egui::pos2(status_rect.left() - 8.0, rect.max.y));
+    ui.painter().with_clip_rect(name_clip).text(
+        egui::pos2(rect.left() + 10.0, rect.center().y - 8.0),
+        egui::Align2::LEFT_CENTER,
+        name,
+        egui::FontId::proportional(12.5),
+        primary,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 10.0, rect.center().y + 10.0),
+        egui::Align2::LEFT_CENTER,
+        if available {
+            recent_project_time(project.opened_at)
+        } else {
+            "文件已移动".to_owned()
+        },
+        egui::FontId::proportional(11.0),
+        FAINT,
+    );
+    let status_ready = project.status == "转写完成";
+    ui.painter().rect_filled(
+        status_rect,
+        egui::CornerRadius::same(12),
+        if status_ready {
+            ACCENT_SOFT
+        } else {
+            egui::Color32::from_rgb(240, 244, 246)
+        },
+    );
+    ui.painter().text(
+        status_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        &project.status,
+        egui::FontId::proportional(10.5),
+        if status_ready { ACCENT_DARK } else { MUTED },
+    );
+    response.on_hover_text(project.path.display().to_string())
+}
+
+fn recent_status_width(status: &str) -> f32 {
+    let text_width = status
+        .chars()
+        .map(|character| if character.is_ascii() { 6.0 } else { 11.0 })
+        .sum::<f32>();
+    (text_width + 18.0).clamp(58.0, 86.0)
+}
+
+fn recent_project_name(path: &std::path::Path) -> String {
+    path.parent()
+        .and_then(std::path::Path::file_name)
+        .or_else(|| path.file_stem())
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("未命名项目")
+        .to_owned()
+}
+
+fn recent_project_time(opened_at: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(opened_at);
+    let elapsed = now.saturating_sub(opened_at);
+    if elapsed < 60 {
+        "刚刚".to_owned()
+    } else if elapsed < 3_600 {
+        format!("{} 分钟前", elapsed / 60)
+    } else if elapsed < 86_400 {
+        format!("{} 小时前", elapsed / 3_600)
+    } else {
+        format!("{} 天前", elapsed / 86_400)
+    }
 }
 
 fn compact_detail_value(value: &str) -> String {
@@ -1579,7 +1753,7 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
     let body_height =
         (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(88.0);
     egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(247, 250, 251))
+        .fill(egui::Color32::from_rgb(249, 251, 252))
         .stroke(egui::Stroke::new(
             1.0,
             egui::Color32::from_rgb(226, 233, 236),
@@ -1589,10 +1763,10 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
         .show(ui, |ui| {
             ui.set_min_height(body_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(((body_height - 94.0) * 0.5).clamp(8.0, 80.0));
+                ui.add_space(((body_height - 88.0) * 0.5).clamp(8.0, 80.0));
                 ui.label(
                     egui::RichText::new("等待生成字幕")
-                        .size(17.0)
+                        .size(16.0)
                         .strong()
                         .color(INK),
                 );
@@ -1602,7 +1776,7 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
                     )
                     .color(MUTED),
                 );
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 output_chip_row(ui, &["SRT", "VTT", "TXT", "JSON"]);
             });
         });
@@ -1612,14 +1786,12 @@ fn review_panel_body_height(panel_height: f32) -> f32 {
     (panel_height - 28.0 - PREVIEW_BORDER_RESERVE).max(160.0)
 }
 
-fn video_empty_state(ui: &mut egui::Ui, message: &str) {
-    let height = (ui.available_width() / 16.0 * 9.0)
-        .min((ui.available_height() - 2.0).max(160.0))
-        .max(160.0);
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), height),
-        egui::Sense::hover(),
-    );
+fn media_empty_surface(ui: &mut egui::Ui, message: &str, panel_height: f32) {
+    let height = (panel_height * 0.54).clamp(300.0, 400.0);
+    let (width, height) = fitted_video_surface_size(ui.available_width(), height);
+    let row_width = ui.available_width().max(width);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(row_width, height), egui::Sense::hover());
+    let rect = egui::Rect::from_center_size(rect.center(), egui::vec2(width, height));
     ui.painter().rect(
         rect,
         egui::CornerRadius::same(9),
@@ -1636,7 +1808,7 @@ fn video_empty_state(ui: &mut egui::Ui, message: &str) {
     );
 }
 
-fn video_preview_header(ui: &mut egui::Ui, badge: &str) {
+fn media_review_header(ui: &mut egui::Ui, title: &str, badge: &str) {
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), VIDEO_HEADER_HEIGHT),
         egui::Sense::hover(),
@@ -1644,7 +1816,7 @@ fn video_preview_header(ui: &mut egui::Ui, badge: &str) {
     ui.painter().text(
         egui::pos2(rect.left(), rect.center().y),
         egui::Align2::LEFT_CENTER,
-        "视频预览",
+        title,
         egui::FontId::proportional(16.0),
         INK,
     );
@@ -1688,7 +1860,13 @@ fn fitted_video_surface_size(max_width: f32, max_height: f32) -> (f32, f32) {
     }
 }
 
-fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: f32) {
+fn media_surface(
+    ui: &mut egui::Ui,
+    preview: &VideoPreview,
+    width: f32,
+    height: f32,
+    has_video: bool,
+) {
     let row_width = ui.available_width().max(width);
     let (row_rect, _) = ui.allocate_exact_size(egui::vec2(row_width, height), egui::Sense::hover());
     let rect = egui::Rect::from_center_size(row_rect.center(), egui::vec2(width, height));
@@ -1700,7 +1878,7 @@ fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: 
         egui::StrokeKind::Outside,
     );
 
-    if let Some(texture) = preview.texture() {
+    if has_video && let Some(texture) = preview.texture() {
         let image_rect = fit_texture_rect(rect, texture.size_vec2());
         ui.painter().image(
             texture.id(),
@@ -1712,13 +1890,17 @@ fn video_surface(ui: &mut egui::Ui, preview: &VideoPreview, width: f32, height: 
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "正在准备预览",
+            if has_video {
+                "正在准备预览"
+            } else {
+                "音频播放"
+            },
             egui::FontId::proportional(15.0),
             egui::Color32::from_rgb(190, 203, 211),
         );
     }
 
-    if preview.is_pending() {
+    if has_video && preview.is_pending() {
         let badge_rect = egui::Rect::from_min_size(
             egui::pos2(rect.left() + 12.0, rect.top() + 12.0),
             egui::vec2(74.0, 26.0),
@@ -1875,54 +2057,6 @@ fn video_scrubber(ui: &mut egui::Ui, time: &mut f64, duration: f64, width: f32) 
     response
 }
 
-fn current_subtitle_card(
-    ui: &mut egui::Ui,
-    segment: Option<&Segment>,
-    current_time: f64,
-    height: f32,
-) {
-    ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), height),
-        egui::Layout::top_down(egui::Align::Min),
-        |ui| {
-            egui::Frame::NONE
-                .fill(egui::Color32::from_rgb(247, 250, 251))
-                .stroke(egui::Stroke::new(1.0, BORDER))
-                .corner_radius(8.0)
-                .inner_margin(egui::Margin::symmetric(12, 8))
-                .show(ui, |ui| {
-                    ui.set_width((ui.available_width() - 24.0).max(0.0));
-                    ui.set_min_height((height - 16.0).max(44.0));
-                    if let Some(segment) = segment {
-                        ui.horizontal(|ui| {
-                            compact_speaker_badge(ui, &segment.speaker);
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{} – {}",
-                                    display_time(segment.start),
-                                    display_time(segment.end)
-                                ))
-                                .monospace()
-                                .size(12.0)
-                                .color(FAINT),
-                            );
-                        });
-                        ui.add_space(3.0);
-                        ui.label(egui::RichText::new(&segment.text).size(14.0).color(INK));
-                    } else {
-                        ui.label(
-                            egui::RichText::new(format!("当前时间 {}", display_time(current_time)))
-                                .monospace()
-                                .size(12.0)
-                                .color(FAINT),
-                        );
-                        ui.label(egui::RichText::new("无匹配字幕").size(14.0).color(MUTED));
-                    }
-                });
-        },
-    );
-}
-
 fn fit_texture_rect(container: egui::Rect, image_size: egui::Vec2) -> egui::Rect {
     let image_aspect = if image_size.y > 0.0 {
         image_size.x / image_size.y
@@ -2058,6 +2192,7 @@ fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
 
 fn raw_preview(ui: &mut egui::Ui, preview: &str, content_height: f32) {
     egui::ScrollArea::vertical()
+        .id_salt("raw-subtitles-scroll")
         .max_height(content_height)
         .show(ui, |ui| {
             ui.set_min_height(content_height);
@@ -2080,6 +2215,8 @@ fn segment_row(
     segment: &Segment,
     speaker_names: &BTreeMap<String, String>,
     time_edits: &mut BTreeMap<usize, (String, String)>,
+    active: bool,
+    follow_playback: bool,
 ) -> Option<(f64, f64, String, String, bool)> {
     let mut speaker = display_speaker(&segment.speaker, speaker_names);
     let mut text = segment.text.clone();
@@ -2115,11 +2252,19 @@ fn segment_row(
     let start_invalid = unchanged_invalid_start || start_parse.is_none() || range_invalid;
     let end_invalid = unchanged_invalid_end || end_parse.is_none() || range_invalid;
 
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(247, 250, 251))
+    let row = egui::Frame::NONE
+        .fill(if active {
+            egui::Color32::from_rgb(235, 247, 245)
+        } else {
+            egui::Color32::from_rgb(247, 250, 251)
+        })
         .stroke(egui::Stroke::new(
             1.0,
-            egui::Color32::from_rgb(226, 233, 236),
+            if active {
+                egui::Color32::from_rgb(166, 215, 207)
+            } else {
+                egui::Color32::from_rgb(226, 233, 236)
+            },
         ))
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(12, 8))
@@ -2146,6 +2291,9 @@ fn segment_row(
                 content_changed |= editable_subtitle_field(ui, &mut text).changed();
             });
         });
+    if active && follow_playback {
+        ui.scroll_to_rect(row.response.rect, Some(egui::Align::Center));
+    }
 
     if time_changed {
         *time_draft = (start_text.clone(), end_text.clone());
@@ -2388,6 +2536,12 @@ fn display_time(seconds: f64) -> String {
     let secs = (millis % 60_000) / 1000;
     let ms = millis % 1000;
     format!("{minutes:02}:{secs:02}.{ms:03}")
+}
+
+fn snapshot_active_segment_index(segments: &[Segment], time: f64) -> Option<usize> {
+    segments
+        .iter()
+        .position(|segment| time >= segment.start && time < segment.end)
 }
 
 fn has_subtitle_preview(preview: &str) -> bool {

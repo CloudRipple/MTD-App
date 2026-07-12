@@ -13,7 +13,7 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    app_settings::{self, AppSettings},
+    app_settings::{self, AppSettings, RecentProject},
     config::{DEFAULT_MODEL, MODELS},
     fonts::{self, SubtitleFont},
     media::{SubtitleBurnOptions, burn_subtitles},
@@ -68,6 +68,8 @@ pub(crate) struct MtdApp {
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
     pub(crate) burning: bool,
+    pub(crate) recent_projects: Vec<RecentProject>,
+    last_registered_project: Option<PathBuf>,
 }
 
 impl Default for MtdApp {
@@ -129,6 +131,8 @@ impl Default for MtdApp {
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
             burning: false,
+            recent_projects: app_settings.recent_projects,
+            last_registered_project: None,
         }
     }
 }
@@ -147,6 +151,11 @@ impl eframe::App for MtdApp {
         let snapshot = self.job.lock().expect("job lock").clone();
         if snapshot.done {
             self.running = false;
+            if let Some(path) = snapshot.project_path.as_ref()
+                && self.last_registered_project.as_ref() != Some(path)
+            {
+                self.remember_recent_project(path.clone(), project_status(&snapshot));
+            }
         }
         if self.burning && !snapshot.status.contains("正在添加字幕") {
             self.burning = false;
@@ -185,9 +194,21 @@ impl eframe::App for MtdApp {
                         .inner_margin(egui::Margin::symmetric(22, 16))
                         .show(ui, |ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(14.0, 12.0);
-                            self.render_workspace(ui, &snapshot);
-                            ui.add_space(12.0);
-                            self.render_review_area(ui, &snapshot);
+                            let height = ui.available_height();
+                            ui.horizontal_top(|ui| {
+                                let sidebar_width = 380.0_f32.min(ui.available_width() * 0.34);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(sidebar_width, height),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| self.render_workspace(ui, &snapshot, height),
+                                );
+                                ui.add_space(12.0);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(ui.available_width(), height),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| self.render_review_area(ui, &snapshot),
+                                );
+                            });
                         });
                 });
             });
@@ -333,7 +354,9 @@ impl MtdApp {
                     self.output_dir = output_dir;
                     self.save_current_settings();
                 }
+                let status = project_status(&snapshot);
                 *self.job.lock().expect("job lock") = snapshot;
+                self.remember_recent_project(path, status);
             }
             Err(error) => {
                 let mut state = self.job.lock().expect("job lock");
@@ -439,6 +462,7 @@ impl MtdApp {
             include_speaker: self.include_speaker,
             subtitle_font: self.selected_subtitle_font.clone(),
             subtitle_font_size: self.subtitle_font_size.clamp(12, 96),
+            recent_projects: self.recent_projects.clone(),
         }
     }
 
@@ -455,6 +479,7 @@ impl MtdApp {
 
         self.save_current_settings();
         self.running = true;
+        self.last_registered_project = None;
         self.video_preview.reset();
         self.speaker_names.clear();
         self.time_edits.clear();
@@ -491,6 +516,46 @@ impl MtdApp {
 
     pub(crate) fn can_start(&self) -> bool {
         !self.running && self.video_path.is_some() && !self.api_key.trim().is_empty()
+    }
+
+    pub(crate) fn clear_recent_projects(&mut self) {
+        self.recent_projects.clear();
+        self.last_registered_project = None;
+        self.save_current_settings();
+    }
+
+    fn remember_recent_project(&mut self, path: PathBuf, status: String) {
+        if let Some(project) = self
+            .recent_projects
+            .iter_mut()
+            .find(|project| project.path == path)
+        {
+            let status_changed = project.status != status;
+            if status_changed {
+                project.status = status;
+            }
+            self.last_registered_project = Some(path);
+            if status_changed {
+                self.save_current_settings();
+            }
+            return;
+        }
+
+        let opened_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        self.recent_projects.insert(
+            0,
+            RecentProject {
+                path: path.clone(),
+                opened_at,
+                status,
+            },
+        );
+        self.recent_projects.truncate(6);
+        self.last_registered_project = Some(path);
+        self.save_current_settings();
     }
 
     pub(crate) fn can_burn(&self, snapshot: &JobSnapshot) -> bool {
@@ -664,6 +729,18 @@ impl MtdApp {
             font_size: self.subtitle_font_size.clamp(12, 96),
             fonts_dir: font.and_then(|font| font.source_dir.clone()),
         }
+    }
+}
+
+fn project_status(snapshot: &JobSnapshot) -> String {
+    if snapshot.error.is_some() {
+        "转写失败".to_owned()
+    } else if snapshot.done {
+        "转写完成".to_owned()
+    } else if snapshot.progress > 0.0 {
+        "转写处理中".to_owned()
+    } else {
+        "等待转写".to_owned()
     }
 }
 

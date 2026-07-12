@@ -26,8 +26,9 @@ const FALLBACK_PREVIEW_FPS: f64 = 30.0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PreviewSource {
-    video_path: PathBuf,
+    media_path: PathBuf,
     srt_path: PathBuf,
+    has_video: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -105,10 +106,6 @@ impl VideoPreview {
         self.playing
     }
 
-    pub(crate) fn has_texture(&self) -> bool {
-        self.texture.is_some()
-    }
-
     pub(crate) fn texture(&self) -> Option<&egui::TextureHandle> {
         self.texture.as_ref()
     }
@@ -128,13 +125,15 @@ impl VideoPreview {
     pub(crate) fn prepare(
         &mut self,
         ctx: &egui::Context,
-        video_path: &Path,
+        media_path: &Path,
         srt_path: &Path,
+        has_video: bool,
         _segments: &[Segment],
     ) {
         let next_source = PreviewSource {
-            video_path: video_path.to_path_buf(),
+            media_path: media_path.to_path_buf(),
             srt_path: srt_path.to_path_buf(),
+            has_video,
         };
         if self.source.as_ref() == Some(&next_source) {
             return;
@@ -143,7 +142,7 @@ impl VideoPreview {
         self.source = Some(next_source);
         self.duration = None;
         self.frame_rate = FALLBACK_PREVIEW_FPS;
-        self.start_metadata_probe(ctx, video_path);
+        self.start_metadata_probe(ctx, media_path);
         self.current_time = 0.0;
         self.playing = false;
         self.last_tick = None;
@@ -221,6 +220,9 @@ impl VideoPreview {
         let Some(source) = self.source.clone() else {
             return;
         };
+        if !source.has_video {
+            return;
+        }
         let key = render_key(&source, &options);
         {
             let cache = self.cache.lock().expect("preview cache lock");
@@ -251,7 +253,7 @@ impl VideoPreview {
                 .map_err(anyhow::Error::from)
                 .and_then(|mut file| {
                     stream_subtitle_preview_frames(
-                        &source.video_path,
+                        &source.media_path,
                         &source.srt_path,
                         PREVIEW_FRAME_WIDTH,
                         PREVIEW_FRAME_HEIGHT,
@@ -410,7 +412,7 @@ impl VideoPreview {
         let Some(source) = &self.source else {
             return;
         };
-        self.audio.start(&source.video_path, self.current_time);
+        self.audio.start(&source.media_path, self.current_time);
     }
 }
 
@@ -582,23 +584,10 @@ pub(crate) fn fallback_duration(segments: &[Segment]) -> f64 {
         .unwrap_or(1.0)
 }
 
-pub(crate) fn active_segment_at(segments: &[Segment], time: f64) -> Option<&Segment> {
-    segments
-        .iter()
-        .find(|segment| time >= segment.start && time <= segment.end)
-        .or_else(|| {
-            segments.iter().min_by(|left, right| {
-                let left_distance = distance_to_segment(left, time);
-                let right_distance = distance_to_segment(right, time);
-                left_distance.total_cmp(&right_distance)
-            })
-        })
-}
-
 fn render_key(source: &PreviewSource, options: &SubtitleBurnOptions) -> String {
     format!(
         "{}|{}|{}|{}|{}",
-        source.video_path.display(),
+        source.media_path.display(),
         source.srt_path.display(),
         options.font_family.as_deref().unwrap_or(""),
         options.font_size,
@@ -608,14 +597,4 @@ fn render_key(source: &PreviewSource, options: &SubtitleBurnOptions) -> String {
             .map(|path| path.display().to_string())
             .unwrap_or_default()
     )
-}
-
-fn distance_to_segment(segment: &Segment, time: f64) -> f64 {
-    if time < segment.start {
-        segment.start - time
-    } else if time > segment.end {
-        time - segment.end
-    } else {
-        0.0
-    }
 }

@@ -45,8 +45,8 @@ fn app_viewport() -> egui::ViewportBuilder {
         .with_title_shown(false)
         .with_titlebar_shown(false)
         .with_movable_by_background(false)
-        .with_inner_size([1440.0, 930.0])
-        .with_min_inner_size([1180.0, 820.0])
+        .with_inner_size([1500.0, 1000.0])
+        .with_min_inner_size([1180.0, 860.0])
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -56,8 +56,8 @@ fn app_viewport() -> egui::ViewportBuilder {
         .with_title("MOSS 字幕工作台")
         .with_decorations(false)
         .with_transparent(true)
-        .with_inner_size([1440.0, 930.0])
-        .with_min_inner_size([1180.0, 820.0])
+        .with_inner_size([1500.0, 1000.0])
+        .with_min_inner_size([1180.0, 860.0])
 }
 
 pub(crate) fn install_app_fonts(ctx: &egui::Context) {
