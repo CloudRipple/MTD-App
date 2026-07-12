@@ -525,37 +525,15 @@ impl MtdApp {
     }
 
     fn remember_recent_project(&mut self, path: PathBuf, status: String) {
-        if let Some(project) = self
-            .recent_projects
-            .iter_mut()
-            .find(|project| project.path == path)
-        {
-            let status_changed = project.status != status;
-            if status_changed {
-                project.status = status;
-            }
-            self.last_registered_project = Some(path);
-            if status_changed {
-                self.save_current_settings();
-            }
-            return;
-        }
-
         let opened_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_secs())
             .unwrap_or(0);
-        self.recent_projects.insert(
-            0,
-            RecentProject {
-                path: path.clone(),
-                opened_at,
-                status,
-            },
-        );
-        self.recent_projects.truncate(6);
+        let changed = upsert_recent_project(&mut self.recent_projects, &path, status, opened_at);
         self.last_registered_project = Some(path);
-        self.save_current_settings();
+        if changed {
+            self.save_current_settings();
+        }
     }
 
     pub(crate) fn can_burn(&self, snapshot: &JobSnapshot) -> bool {
@@ -832,5 +810,96 @@ fn sync_subtitle_outputs(state: &mut JobSnapshot) {
 fn sync_project_file(state: &JobSnapshot) {
     if let Some(project_path) = &state.project_path {
         let _ = save_project(project_path, state);
+    }
+}
+
+fn upsert_recent_project(
+    projects: &mut Vec<RecentProject>,
+    path: &std::path::Path,
+    status: String,
+    opened_at: u64,
+) -> bool {
+    if let Some(project) = projects.iter_mut().find(|project| project.path == path) {
+        if project.status == status {
+            return false;
+        }
+        project.status = status;
+        return true;
+    }
+
+    projects.insert(
+        0,
+        RecentProject {
+            path: path.to_path_buf(),
+            opened_at,
+            status,
+        },
+    );
+    projects.truncate(6);
+    true
+}
+
+#[cfg(test)]
+mod recent_project_tests {
+    use super::upsert_recent_project;
+    use crate::app_settings::RecentProject;
+    use std::path::PathBuf;
+
+    #[test]
+    fn keeps_existing_project_order_and_access_time_stable() {
+        let first = PathBuf::from("/projects/first/project.mtd.json");
+        let second = PathBuf::from("/projects/second/project.mtd.json");
+        let mut projects = vec![
+            RecentProject {
+                path: first.clone(),
+                opened_at: 10,
+                status: "转写完成".to_owned(),
+            },
+            RecentProject {
+                path: second.clone(),
+                opened_at: 20,
+                status: "转写完成".to_owned(),
+            },
+        ];
+
+        assert!(!upsert_recent_project(
+            &mut projects,
+            &second,
+            "转写完成".to_owned(),
+            999,
+        ));
+        assert_eq!(projects[0].path, first);
+        assert_eq!(projects[1].path, second);
+        assert_eq!(projects[1].opened_at, 20);
+    }
+
+    #[test]
+    fn updates_status_in_place_and_only_prepends_new_projects() {
+        let existing = PathBuf::from("/projects/existing/project.mtd.json");
+        let new_project = PathBuf::from("/projects/new/project.mtd.json");
+        let mut projects = vec![RecentProject {
+            path: existing.clone(),
+            opened_at: 10,
+            status: "转写处理中".to_owned(),
+        }];
+
+        assert!(upsert_recent_project(
+            &mut projects,
+            &existing,
+            "转写完成".to_owned(),
+            500,
+        ));
+        assert_eq!(projects[0].opened_at, 10);
+        assert_eq!(projects[0].status, "转写完成");
+
+        assert!(upsert_recent_project(
+            &mut projects,
+            &new_project,
+            "转写完成".to_owned(),
+            600,
+        ));
+        assert_eq!(projects[0].path, new_project);
+        assert_eq!(projects[0].opened_at, 600);
+        assert_eq!(projects[1].path, existing);
     }
 }
