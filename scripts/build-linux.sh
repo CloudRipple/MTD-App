@@ -16,8 +16,8 @@ scripts/build-ffmpeg.sh linux
 cargo build --release
 mkdir -p dist/linux
 mkdir -p dist/linux/fonts dist/linux/legal
-cp target/release/mtd-subtitle-app dist/linux/MTDSubtitleApp
-chmod +x dist/linux/MTDSubtitleApp
+cp target/release/mtd-subtitle-app dist/linux/MOSS-Subtitle-Workbench
+chmod +x dist/linux/MOSS-Subtitle-Workbench
 cp "$FONT_FILE" dist/linux/fonts/
 cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" "$FONT_LICENSE_FILE" dist/linux/legal/
 mkdir -p dist/linux/legal/ffmpeg
@@ -26,12 +26,12 @@ cp vendor/ffmpeg-src/LICENSE.md \
   vendor/ffmpeg-src/COPYING.LGPLv3 \
   vendor/ffmpeg/linux/BUILD_INFO.txt \
   dist/linux/legal/ffmpeg/
-cat > dist/linux/MTDSubtitleApp.desktop <<'DESKTOP'
+cat > dist/linux/MOSS-Subtitle-Workbench.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=MOSS Subtitle App
-Name[zh_CN]=MOSS 字幕工作台
-Exec=MTDSubtitleApp
+Name=MOSS-Subtitle-Workbench
+Name[zh_CN]=MOSS-Subtitle-Workbench
+Exec=MOSS-Subtitle-Workbench
 Terminal=false
 Categories=AudioVideo;Utility;
 DESKTOP

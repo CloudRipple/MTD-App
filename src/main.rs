@@ -2,6 +2,7 @@
 
 mod api;
 mod app;
+mod app_data;
 mod app_settings;
 mod config;
 mod embedded_assets;
@@ -21,10 +22,11 @@ mod ui;
 mod video_preview;
 
 use app::MtdApp;
+use config::APP_NAME;
 
 fn main() -> eframe::Result<()> {
     eframe::run_native(
-        "MOSS 字幕工作台",
+        APP_NAME,
         platform::native_options(),
         Box::new(|cc| {
             platform::install_app_fonts(&cc.egui_ctx);

@@ -170,5 +170,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Reset-Directory "dist\windows"
-Copy-Item target\release\mtd-subtitle-app.exe dist\windows\MTDSubtitleApp.exe
-Write-Host "Build output: dist\windows\MTDSubtitleApp.exe"
+Copy-Item target\release\mtd-subtitle-app.exe dist\windows\MOSS-Subtitle-Workbench.exe
+Write-Host "Build output: dist\windows\MOSS-Subtitle-Workbench.exe"

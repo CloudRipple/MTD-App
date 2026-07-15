@@ -5,7 +5,7 @@ FONT_FILE="assets/fonts/HarmonyOS_Sans_SC_Regular.ttf"
 FONT_LICENSE_FILE="assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt"
 NOTICE_FILE="NOTICE.md"
 THIRD_PARTY_FILE="THIRD_PARTY_NOTICES.md"
-APP_DIR="dist/macos/MTDSubtitleApp.app"
+APP_DIR="dist/macos/MOSS-Subtitle-Workbench.app"
 CODESIGN_IDENTITY="${MACOS_CODESIGN_IDENTITY:--}"
 
 bundle_macos_dylibs() {
@@ -84,8 +84,8 @@ mkdir -p dist/macos
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Resources/fonts" "$APP_DIR/Contents/Resources/legal"
-cp target/release/mtd-subtitle-app "$APP_DIR/Contents/MacOS/MTDSubtitleApp"
-chmod +x "$APP_DIR/Contents/MacOS/MTDSubtitleApp"
+cp target/release/mtd-subtitle-app "$APP_DIR/Contents/MacOS/MOSS-Subtitle-Workbench"
+chmod +x "$APP_DIR/Contents/MacOS/MOSS-Subtitle-Workbench"
 cp "$FONT_FILE" "$APP_DIR/Contents/Resources/fonts/"
 cp "$NOTICE_FILE" "$THIRD_PARTY_FILE" "$FONT_LICENSE_FILE" "$APP_DIR/Contents/Resources/legal/"
 mkdir -p "$APP_DIR/Contents/Resources/legal/ffmpeg"
@@ -101,13 +101,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>MTDSubtitleApp</string>
+  <string>MOSS-Subtitle-Workbench</string>
   <key>CFBundleIdentifier</key>
-  <string>cn.mtd.subtitle-app</string>
+  <string>cn.moss.subtitle-workbench</string>
   <key>CFBundleName</key>
-  <string>MOSS Subtitle App</string>
+  <string>MOSS-Subtitle-Workbench</string>
   <key>CFBundleDisplayName</key>
-  <string>MOSS 字幕工作台</string>
+  <string>MOSS-Subtitle-Workbench</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

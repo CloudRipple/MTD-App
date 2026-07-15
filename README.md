@@ -1,4 +1,4 @@
-# MTD Subtitle App
+# MOSS-Subtitle-Workbench
 
 Rust native desktop subtitle workstation. It accepts audio or video input, submits
 audio to MOSS-Transcribe-Diarize, writes SRT/VTT subtitles, and can burn subtitles
@@ -43,9 +43,9 @@ scripts\build-windows.ps1
 
 Build outputs:
 
-- `dist/macos/MTDSubtitleApp.app`
-- `dist/linux/MTDSubtitleApp`
-- `dist/windows/MTDSubtitleApp.exe`
+- `dist/macos/MOSS-Subtitle-Workbench.app`
+- `dist/linux/MOSS-Subtitle-Workbench`
+- `dist/windows/MOSS-Subtitle-Workbench.exe`
 
 Windows distribution is a single executable. The app embeds FFmpeg, the required
 MinGW runtime DLLs, and the UI font, then extracts runtime files into the user's
@@ -69,7 +69,7 @@ vendor/ffmpeg/windows/ffmpeg.exe
 ```
 
 macOS and Linux keep FFmpeg beside the app bundle/executable. Windows embeds
-`ffmpeg.exe` and its MinGW DLL dependencies into `MTDSubtitleApp.exe`.
+`ffmpeg.exe` and its MinGW DLL dependencies into `MOSS-Subtitle-Workbench.exe`.
 
 Default FFmpeg flags stay LGPL-compatible:
 
@@ -102,11 +102,13 @@ assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt
 ## Release Workflow
 
 GitHub Actions release builds produce one uploaded asset per platform. The Windows
-job verifies that `dist/windows` contains only `MTDSubtitleApp.exe` before upload.
+job verifies that `dist/windows` contains only `MOSS-Subtitle-Workbench.exe` before upload.
 
 ## Output Files
 
-The app creates `MTD字幕-<timestamp>/` under the selected output directory.
+New projects are created in `~/MOSS-Subtitle-Workbench/` by default, inside a
+`MOSS-Subtitle-Workbench-<timestamp>/` project directory. The project root can be
+changed in the app and is not changed when an existing project is opened.
 
 Generated files include:
 

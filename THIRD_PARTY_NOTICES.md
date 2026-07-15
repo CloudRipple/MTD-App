@@ -10,11 +10,11 @@ This file summarizes third-party assets and direct Rust dependencies used by MTD
 - Expected file: `assets/fonts/HarmonyOS_Sans_SC_Regular.ttf`
 - Upstream license file: `assets/fonts/HarmonyOS_Sans_SC_LICENSE.txt`
 - Distribution location:
-  - macOS: `MTDSubtitleApp.app/Contents/Resources/fonts/HarmonyOS_Sans_SC_Regular.ttf`
+  - macOS: `MOSS-Subtitle-Workbench.app/Contents/Resources/fonts/HarmonyOS_Sans_SC_Regular.ttf`
   - Linux: `dist/linux/fonts/HarmonyOS_Sans_SC_Regular.ttf`
   - Windows: `dist/windows/fonts/HarmonyOS_Sans_SC_Regular.ttf`
 - License distribution location:
-  - macOS: `MTDSubtitleApp.app/Contents/Resources/legal/HarmonyOS_Sans_SC_LICENSE.txt`
+  - macOS: `MOSS-Subtitle-Workbench.app/Contents/Resources/legal/HarmonyOS_Sans_SC_LICENSE.txt`
   - Linux: `dist/linux/legal/HarmonyOS_Sans_SC_LICENSE.txt`
   - Windows: `dist/windows/legal/HarmonyOS_Sans_SC_LICENSE.txt`
 - Publisher: Huawei
@@ -34,11 +34,11 @@ This file summarizes third-party assets and direct Rust dependencies used by MTD
 - Default configure flags: `--pkg-config-flags=--static --disable-gpl --disable-nonfree --enable-libass`
 - Intended license profile: LGPL-compatible FFmpeg build. Do not enable GPL or nonfree FFmpeg components without updating the product license review and release notices.
 - Distribution location:
-  - macOS: `MTDSubtitleApp.app/Contents/Resources/ffmpeg`
+  - macOS: `MOSS-Subtitle-Workbench.app/Contents/Resources/ffmpeg`
   - Linux: `dist/linux/ffmpeg`
   - Windows: `dist/windows/ffmpeg.exe`
 - License distribution location:
-  - macOS: `MTDSubtitleApp.app/Contents/Resources/legal/ffmpeg/`
+  - macOS: `MOSS-Subtitle-Workbench.app/Contents/Resources/legal/ffmpeg/`
   - Linux: `dist/linux/legal/ffmpeg/`
   - Windows: `dist/windows/legal/ffmpeg/`
 - Required release record: source URL, exact submodule commit, configure flags, license text, and any required offer for source code.

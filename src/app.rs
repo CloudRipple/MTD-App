@@ -42,7 +42,7 @@ struct SettingsSaveResult {
 
 pub(crate) struct MtdApp {
     pub(crate) video_path: Option<PathBuf>,
-    pub(crate) output_dir: PathBuf,
+    pub(crate) new_project_root: PathBuf,
     pub(crate) api_key: String,
     pub(crate) model: String,
     pub(crate) max_tokens: u32,
@@ -105,7 +105,7 @@ impl Default for MtdApp {
             };
         Self {
             video_path: None,
-            output_dir: app_settings.output_dir,
+            new_project_root: app_settings.new_project_root,
             api_key,
             model: valid_model_or_default(&app_settings.model),
             max_tokens: app_settings.max_tokens,
@@ -329,8 +329,8 @@ fn render_resize_handles(ui: &mut egui::Ui, rect: egui::Rect) {
 impl MtdApp {
     pub(crate) fn open_project_dialog(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .set_title("打开 MTD 项目")
-            .add_filter("MTD 项目", &["json"])
+            .set_title("打开 MOSS-Subtitle-Workbench 项目")
+            .add_filter("MOSS-Subtitle-Workbench 项目", &["json"])
             .pick_file()
         else {
             return;
@@ -350,10 +350,6 @@ impl MtdApp {
                     .input_media_path
                     .clone()
                     .or_else(|| snapshot.input_video_path.clone());
-                if let Some(output_dir) = snapshot.output_dir.clone() {
-                    self.output_dir = output_dir;
-                    self.save_current_settings();
-                }
                 let status = project_status(&snapshot);
                 *self.job.lock().expect("job lock") = snapshot;
                 self.remember_recent_project(path, status);
@@ -456,7 +452,7 @@ impl MtdApp {
 
     fn current_settings(&self) -> AppSettings {
         AppSettings {
-            output_dir: self.output_dir.clone(),
+            new_project_root: self.new_project_root.clone(),
             model: self.model.clone(),
             max_tokens: self.max_tokens.clamp(1_000, 96_000),
             include_speaker: self.include_speaker,
@@ -471,7 +467,7 @@ impl MtdApp {
             return;
         };
         let api_key = self.api_key.trim().to_owned();
-        let output_dir = self.output_dir.clone();
+        let new_project_root = self.new_project_root.clone();
         let model = self.model.clone();
         let max_tokens = self.max_tokens.clamp(1_000, 96_000);
         let include_speaker = self.include_speaker;
@@ -498,7 +494,7 @@ impl MtdApp {
             let result = run_job(
                 &job,
                 video_path,
-                output_dir,
+                new_project_root,
                 api_key,
                 model,
                 max_tokens,
@@ -570,7 +566,11 @@ impl MtdApp {
             .set_title("导出通用字幕文件")
             .set_file_name(&default_name)
             .add_filter(format.label(), &[format.extension()]);
-        if let Some(output_dir) = snapshot.output_dir.as_ref().or(Some(&self.output_dir)) {
+        if let Some(output_dir) = snapshot
+            .output_dir
+            .as_ref()
+            .or(Some(&self.new_project_root))
+        {
             dialog = dialog.set_directory(output_dir);
         }
         let Some(path) = dialog.save_file() else {

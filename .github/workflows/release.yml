@@ -39,13 +39,13 @@ jobs:
         include:
           - platform: macos
             os: macos-15
-            asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-macos.zip
+            asset_name: MOSS-Subtitle-Workbench-${{ inputs.tag_name }}-macos.zip
           - platform: linux
             os: ubuntu-latest
-            asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-linux
+            asset_name: MOSS-Subtitle-Workbench-${{ inputs.tag_name }}-linux
           - platform: windows
             os: windows-latest
-            asset_name: MTDSubtitleApp-${{ inputs.tag_name }}-windows.exe
+            asset_name: MOSS-Subtitle-Workbench-${{ inputs.tag_name }}-windows.exe
 
     steps:
       - name: Checkout
@@ -113,26 +113,26 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          if (!(Test-Path dist\windows\MTDSubtitleApp.exe)) {
+          if (!(Test-Path dist\windows\MOSS-Subtitle-Workbench.exe)) {
             Write-Error "Missing Windows release executable."
           }
           $entries = Get-ChildItem dist\windows
-          if ($entries.Count -ne 1 -or $entries[0].Name -ne "MTDSubtitleApp.exe") {
+          if ($entries.Count -ne 1 -or $entries[0].Name -ne "MOSS-Subtitle-Workbench.exe") {
             $entries | Format-Table Name,Length,LastWriteTime | Out-String | Write-Host
-            Write-Error "Windows release must contain only dist\windows\MTDSubtitleApp.exe."
+            Write-Error "Windows release must contain only dist\windows\MOSS-Subtitle-Workbench.exe."
           }
 
       - name: Collect macOS app bundle
         if: matrix.platform == 'macos'
         run: |
           mkdir -p release-assets
-          ditto -c -k --keepParent dist/macos/MTDSubtitleApp.app "release-assets/${{ matrix.asset_name }}"
+          ditto -c -k --keepParent dist/macos/MOSS-Subtitle-Workbench.app "release-assets/${{ matrix.asset_name }}"
 
       - name: Collect Linux executable
         if: matrix.platform == 'linux'
         run: |
           mkdir -p release-assets
-          cp dist/linux/MTDSubtitleApp "release-assets/${{ matrix.asset_name }}"
+          cp dist/linux/MOSS-Subtitle-Workbench "release-assets/${{ matrix.asset_name }}"
           chmod +x "release-assets/${{ matrix.asset_name }}"
 
       - name: Collect Windows executable
@@ -140,7 +140,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          Copy-Item dist\windows\MTDSubtitleApp.exe "release-assets\${{ matrix.asset_name }}"
+          Copy-Item dist\windows\MOSS-Subtitle-Workbench.exe "release-assets\${{ matrix.asset_name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

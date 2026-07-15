@@ -5,6 +5,8 @@ use std::{
     sync::OnceLock,
 };
 
+use crate::config::APP_NAME;
+
 pub(crate) struct EmbeddedFile {
     pub(crate) name: &'static str,
     pub(crate) bytes: &'static [u8],
@@ -75,10 +77,10 @@ fn write_embedded_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 fn runtime_root() -> Option<PathBuf> {
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        return Some(PathBuf::from(local_app_data).join("MTDSubtitleApp"));
+        return Some(PathBuf::from(local_app_data).join(APP_NAME));
     }
     env::temp_dir()
         .canonicalize()
         .ok()
-        .map(|path| path.join("MTDSubtitleApp"))
+        .map(|path| path.join(APP_NAME))
 }

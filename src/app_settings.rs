@@ -1,23 +1,26 @@
 use std::{
-    env, fs,
+    fs,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-#[cfg(windows)]
-use crate::platform::hide_command_window;
-use crate::{config::DEFAULT_MODEL, platform::default_output_dir};
+use crate::{
+    app_data::{
+        app_data_file_for_read, default_project_root, ensure_app_data_dir,
+        set_private_file_permissions,
+    },
+    config::DEFAULT_MODEL,
+};
 
-const APP_DIR: &str = ".mtd-subtitle-app";
 const SETTINGS_FILE: &str = "app-settings.json";
 
 #[derive(Clone, Debug)]
 pub(crate) struct AppSettings {
-    pub(crate) output_dir: PathBuf,
+    pub(crate) new_project_root: PathBuf,
     pub(crate) model: String,
     pub(crate) max_tokens: u32,
     pub(crate) include_speaker: bool,
@@ -36,7 +39,7 @@ pub(crate) struct RecentProject {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            output_dir: default_output_dir(),
+            new_project_root: default_project_root(),
             model: DEFAULT_MODEL.to_owned(),
             max_tokens: 48_000,
             include_speaker: true,
@@ -60,12 +63,13 @@ pub(crate) fn load_app_settings() -> Result<AppSettings> {
     };
     let value: Value = serde_json::from_str(&content).context("解析应用设置失败")?;
     Ok(AppSettings {
-        output_dir: value
-            .get("output_dir")
+        new_project_root: value
+            .get("new_project_root")
+            .or_else(|| value.get("output_dir"))
             .and_then(Value::as_str)
             .filter(|path| !path.trim().is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(default_output_dir),
+            .unwrap_or_else(default_project_root),
         model: value
             .get("model")
             .and_then(Value::as_str)
@@ -125,7 +129,7 @@ pub(crate) fn save_app_settings(settings: &AppSettings) -> Result<()> {
     let path = dir.join(SETTINGS_FILE);
     let temp_path = dir.join(format!("{SETTINGS_FILE}.tmp"));
     let payload = json!({
-        "output_dir": settings.output_dir.display().to_string(),
+        "new_project_root": settings.new_project_root.display().to_string(),
         "model": settings.model,
         "max_tokens": settings.max_tokens,
         "include_speaker": settings.include_speaker,
@@ -145,32 +149,11 @@ pub(crate) fn save_app_settings(settings: &AppSettings) -> Result<()> {
 }
 
 fn settings_path() -> Result<PathBuf> {
-    Ok(app_dir()?.join(SETTINGS_FILE))
+    app_data_file_for_read(SETTINGS_FILE)
 }
 
 fn ensure_app_dir() -> Result<PathBuf> {
-    let dir = app_dir()?;
-    fs::create_dir_all(&dir).with_context(|| format!("创建配置目录失败：{}", dir.display()))?;
-    set_private_dir_permissions(&dir)?;
-    #[cfg(windows)]
-    {
-        let mut command = std::process::Command::new("attrib");
-        hide_command_window(&mut command);
-        let _ = command.arg("+h").arg(&dir).status();
-    }
-    Ok(dir)
-}
-
-fn app_dir() -> Result<PathBuf> {
-    home_dir()
-        .map(|home| home.join(APP_DIR))
-        .ok_or_else(|| anyhow!("无法定位用户目录，不能保存应用设置"))
-}
-
-fn home_dir() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("USERPROFILE").map(PathBuf::from))
+    ensure_app_data_dir()
 }
 
 fn write_private_file(path: &Path, bytes: Vec<u8>) -> Result<()> {
@@ -185,30 +168,6 @@ fn write_private_file(path: &Path, bytes: Vec<u8>) -> Result<()> {
         .with_context(|| format!("写入设置文件失败：{}", path.display()))?;
     file.sync_all()
         .with_context(|| format!("同步设置文件失败：{}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_private_dir_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .with_context(|| format!("设置目录权限失败：{}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_private_dir_permissions(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_private_file_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("设置文件权限失败：{}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -227,5 +186,12 @@ mod tests {
         assert!(settings.subtitle_font.is_none());
         assert_eq!(settings.subtitle_font_size, 24);
         assert!(settings.recent_projects.is_empty());
+        assert_eq!(
+            settings
+                .new_project_root
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("MOSS-Subtitle-Workbench")
+        );
     }
 }

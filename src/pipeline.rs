@@ -23,13 +23,13 @@ use crate::{
 pub(crate) fn run_job(
     job: &Arc<Mutex<JobSnapshot>>,
     media_path: PathBuf,
-    output_root: PathBuf,
+    new_project_root: PathBuf,
     api_key: String,
     model: String,
     max_tokens: u32,
     include_speaker: bool,
 ) -> Result<()> {
-    let job_dir = output_root.join(format!("MTD字幕-{}", unix_timestamp()));
+    let job_dir = new_project_root.join(format!("MOSS-Subtitle-Workbench-{}", unix_timestamp()));
     fs::create_dir_all(&job_dir)
         .with_context(|| format!("无法创建输出目录：{}", job_dir.display()))?;
 

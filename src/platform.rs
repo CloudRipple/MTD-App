@@ -9,7 +9,10 @@ use eframe::egui;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
-use crate::{config::HARMONYOS_FONT_REGULAR, embedded_assets};
+use crate::{
+    config::{APP_ID, APP_NAME, HARMONYOS_FONT_REGULAR},
+    embedded_assets,
+};
 
 #[cfg(windows)]
 pub(crate) fn hide_command_window(command: &mut Command) {
@@ -39,8 +42,8 @@ pub(crate) fn native_options() -> eframe::NativeOptions {
 #[cfg(target_os = "macos")]
 fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
-        .with_app_id("cn.mtd.subtitle-app")
-        .with_title("MOSS 字幕工作台")
+        .with_app_id(APP_ID)
+        .with_title(APP_NAME)
         .with_fullsize_content_view(true)
         .with_title_shown(false)
         .with_titlebar_shown(false)
@@ -52,8 +55,8 @@ fn app_viewport() -> egui::ViewportBuilder {
 #[cfg(not(target_os = "macos"))]
 fn app_viewport() -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
-        .with_app_id("cn.mtd.subtitle-app")
-        .with_title("MOSS 字幕工作台")
+        .with_app_id(APP_ID)
+        .with_title(APP_NAME)
         .with_decorations(false)
         .with_transparent(true)
         .with_inner_size([1500.0, 1000.0])
@@ -154,11 +157,4 @@ pub(crate) fn open_path(path: &Path) -> Result<()> {
         Command::new("xdg-open").arg(path).spawn()?;
     }
     Ok(())
-}
-
-pub(crate) fn default_output_dir() -> PathBuf {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
 }

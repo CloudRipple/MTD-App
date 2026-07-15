@@ -5,7 +5,7 @@ use eframe::egui;
 use crate::{
     app::MtdApp,
     app_settings::RecentProject,
-    config::MODELS,
+    config::{APP_NAME, MODELS},
     job::update_job,
     media_types::{AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, supported_extensions},
     models::{JobSnapshot, PreviewMode, Segment, SubtitleExportFormat},
@@ -111,7 +111,7 @@ impl MtdApp {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "MOSS 字幕工作台",
+            APP_NAME,
             egui::FontId::proportional(16.0),
             INK,
         );
@@ -150,7 +150,7 @@ impl MtdApp {
                 }
                 if ui.button("打开输出目录").clicked() {
                     ui.close();
-                    let _ = open_path(&self.output_dir);
+                    let _ = open_path(&self.new_project_root);
                 }
             });
         });
@@ -272,7 +272,7 @@ impl MtdApp {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             inline_config_label(ui, "输出目录");
-            let output_text = self.output_dir.display().to_string();
+            let output_text = self.new_project_root.display().to_string();
             let pill_width = path_pill_width(ui, 76.0);
             path_pill(ui, &output_text, true, pill_width);
             if ui
@@ -280,7 +280,7 @@ impl MtdApp {
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.output_dir = path;
+                    self.new_project_root = path;
                     self.save_current_settings();
                     ui.ctx().request_repaint();
                 }
@@ -656,13 +656,13 @@ impl MtdApp {
         ui.add_space(10.0);
         detail_grid(ui, snapshot);
 
-        let output_path = snapshot.output_dir.as_ref().unwrap_or(&self.output_dir);
+        let (output_path, open_label) = match snapshot.output_dir.as_ref() {
+            Some(project_dir) => (project_dir, "打开项目目录"),
+            None => (&self.new_project_root, "打开输出目录"),
+        };
         ui.add_space(8.0);
         if ui
-            .add_sized(
-                [ui.available_width(), 32.0],
-                egui::Button::new("打开输出目录"),
-            )
+            .add_sized([ui.available_width(), 32.0], egui::Button::new(open_label))
             .clicked()
         {
             let _ = open_path(output_path);

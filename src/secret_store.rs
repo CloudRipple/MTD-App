@@ -1,21 +1,23 @@
 use std::{
-    env, fs,
+    fs,
     fs::OpenOptions,
     io::{self, Write},
-    path::PathBuf,
-    process::Command,
+    path::{Path, PathBuf},
 };
+
+#[cfg(target_os = "macos")]
+use std::{env, process::Command};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 
-#[cfg(windows)]
-use crate::platform::hide_command_window;
+use crate::app_data::{app_data_file_for_read, ensure_app_data_dir, set_private_file_permissions};
 
-const APP_DIR: &str = ".mtd-subtitle-app";
 const CREDENTIALS_FILE: &str = "credentials.json";
 #[cfg(target_os = "macos")]
-const KEYCHAIN_SERVICE: &str = "cn.mtd.subtitle-app.moss-api-key";
+const KEYCHAIN_SERVICE: &str = "cn.moss.subtitle-workbench.moss-api-key";
+#[cfg(target_os = "macos")]
+const LEGACY_KEYCHAIN_SERVICE: &str = "cn.mtd.subtitle-app.moss-api-key";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ApiKeyStorage {
@@ -29,7 +31,7 @@ impl ApiKeyStorage {
         match self {
             #[cfg(target_os = "macos")]
             Self::Keychain => "macOS Keychain",
-            Self::HiddenFile => "~/.mtd-subtitle-app/credentials.json",
+            Self::HiddenFile => "~/.moss-subtitle-workbench/credentials.json",
         }
     }
 }
@@ -62,7 +64,8 @@ pub(crate) fn save_api_key(api_key: &str) -> Result<ApiKeyStorage> {
 pub(crate) fn clear_api_key() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let _ = delete_keychain_api_key();
+        let _ = delete_keychain_api_key(KEYCHAIN_SERVICE);
+        let _ = delete_keychain_api_key(LEGACY_KEYCHAIN_SERVICE);
     }
 
     let path = credentials_path()?;
@@ -104,7 +107,7 @@ fn save_file_api_key(api_key: &str) -> Result<()> {
     save_file_api_key_to(&dir, api_key)
 }
 
-fn save_file_api_key_to(dir: &PathBuf, api_key: &str) -> Result<()> {
+fn save_file_api_key_to(dir: &Path, api_key: &str) -> Result<()> {
     let path = dir.join(CREDENTIALS_FILE);
     let temp_path = dir.join(format!("{CREDENTIALS_FILE}.tmp"));
     let payload = json!({
@@ -131,7 +134,7 @@ fn write_storage_marker(storage: ApiKeyStorage) -> Result<()> {
     Ok(())
 }
 
-fn write_private_file(path: &PathBuf, bytes: Vec<u8>) -> Result<()> {
+fn write_private_file(path: &Path, bytes: Vec<u8>) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -147,66 +150,35 @@ fn write_private_file(path: &PathBuf, bytes: Vec<u8>) -> Result<()> {
 }
 
 fn credentials_path() -> Result<PathBuf> {
-    Ok(app_dir()?.join(CREDENTIALS_FILE))
+    app_data_file_for_read(CREDENTIALS_FILE)
 }
 
 fn ensure_app_dir() -> Result<PathBuf> {
-    let dir = app_dir()?;
-    fs::create_dir_all(&dir).with_context(|| format!("创建配置目录失败：{}", dir.display()))?;
-    set_private_dir_permissions(&dir)?;
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("attrib");
-        hide_command_window(&mut command);
-        let _ = command.arg("+h").arg(&dir).status();
-    }
-    Ok(dir)
-}
-
-fn app_dir() -> Result<PathBuf> {
-    home_dir()
-        .map(|home| home.join(APP_DIR))
-        .ok_or_else(|| anyhow!("无法定位用户目录，不能安全保存 API Key"))
-}
-
-fn home_dir() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("USERPROFILE").map(PathBuf::from))
-}
-
-#[cfg(unix)]
-fn set_private_dir_permissions(path: &PathBuf) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .with_context(|| format!("设置目录权限失败：{}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_private_dir_permissions(_path: &PathBuf) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_private_file_permissions(path: &PathBuf) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("设置文件权限失败：{}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &PathBuf) -> Result<()> {
-    Ok(())
+    ensure_app_data_dir()
 }
 
 #[cfg(target_os = "macos")]
 fn load_keychain_api_key() -> Result<Option<String>> {
+    if let Some(api_key) = load_keychain_api_key_from(KEYCHAIN_SERVICE)? {
+        return Ok(Some(api_key));
+    }
+    let Some(api_key) = load_keychain_api_key_from(LEGACY_KEYCHAIN_SERVICE)? else {
+        return Ok(None);
+    };
+    if save_keychain_api_key_to(KEYCHAIN_SERVICE, &api_key).is_ok() {
+        let _ = delete_keychain_api_key(LEGACY_KEYCHAIN_SERVICE);
+    }
+    Ok(Some(api_key))
+}
+
+#[cfg(target_os = "macos")]
+fn load_keychain_api_key_from(service: &str) -> Result<Option<String>> {
     let output = Command::new("security")
         .arg("find-generic-password")
         .arg("-a")
         .arg(keychain_account())
         .arg("-s")
-        .arg(KEYCHAIN_SERVICE)
+        .arg(service)
         .arg("-w")
         .output()
         .context("读取 macOS Keychain 失败")?;
@@ -219,13 +191,18 @@ fn load_keychain_api_key() -> Result<Option<String>> {
 
 #[cfg(target_os = "macos")]
 fn save_keychain_api_key(api_key: &str) -> Result<()> {
+    save_keychain_api_key_to(KEYCHAIN_SERVICE, api_key)
+}
+
+#[cfg(target_os = "macos")]
+fn save_keychain_api_key_to(service: &str, api_key: &str) -> Result<()> {
     let output = Command::new("security")
         .arg("add-generic-password")
         .arg("-U")
         .arg("-a")
         .arg(keychain_account())
         .arg("-s")
-        .arg(KEYCHAIN_SERVICE)
+        .arg(service)
         .arg("-w")
         .arg(api_key)
         .output()
@@ -241,13 +218,13 @@ fn save_keychain_api_key(api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn delete_keychain_api_key() -> Result<()> {
+fn delete_keychain_api_key(service: &str) -> Result<()> {
     let output = Command::new("security")
         .arg("delete-generic-password")
         .arg("-a")
         .arg(keychain_account())
         .arg("-s")
-        .arg(KEYCHAIN_SERVICE)
+        .arg(service)
         .output()
         .context("删除 macOS Keychain 项失败")?;
     if output.status.success() {
@@ -269,6 +246,8 @@ fn keychain_account() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use super::*;
 
     #[test]
