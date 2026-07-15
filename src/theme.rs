@@ -20,14 +20,6 @@ pub(crate) fn panel_frame() -> egui::Frame {
         .inner_margin(egui::Margin::same(15))
 }
 
-pub(crate) fn preview_frame() -> egui::Frame {
-    egui::Frame::NONE
-        .fill(SURFACE)
-        .stroke(egui::Stroke::new(1.0_f32, BORDER))
-        .corner_radius(9.0)
-        .inner_margin(egui::Margin::same(14))
-}
-
 pub(crate) fn install_app_style(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
     style.spacing.item_spacing = egui::vec2(10.0, 8.0);

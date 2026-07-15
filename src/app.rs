@@ -34,6 +34,7 @@ use crate::{
 const RESIZE_HANDLE_SIZE: f32 = 6.0;
 #[cfg(not(target_os = "macos"))]
 const RESIZE_CORNER_SIZE: f32 = 16.0;
+const REVIEW_AREA_BOTTOM_GAP: f32 = 16.0;
 
 struct SettingsSaveResult {
     generation: u64,
@@ -62,6 +63,7 @@ pub(crate) struct MtdApp {
     pub(crate) api_key_store_error: bool,
     pub(crate) model_picker_open: bool,
     pub(crate) preview_mode: PreviewMode,
+    pub(crate) review_split_ratio: f32,
     pub(crate) video_preview: VideoPreview,
     pub(crate) speaker_names: BTreeMap<String, String>,
     pub(crate) time_edits: BTreeMap<usize, (String, String)>,
@@ -125,6 +127,7 @@ impl Default for MtdApp {
             api_key_store_error,
             model_picker_open: false,
             preview_mode: PreviewMode::Rendered,
+            review_split_ratio: 0.47,
             video_preview: VideoPreview::default(),
             speaker_names: BTreeMap::new(),
             time_edits: BTreeMap::new(),
@@ -204,7 +207,10 @@ impl eframe::App for MtdApp {
                                 );
                                 ui.add_space(12.0);
                                 ui.allocate_ui_with_layout(
-                                    egui::vec2(ui.available_width(), height),
+                                    egui::vec2(
+                                        ui.available_width(),
+                                        (height - REVIEW_AREA_BOTTOM_GAP).max(160.0),
+                                    ),
                                     egui::Layout::top_down(egui::Align::Min),
                                     |ui| self.render_review_area(ui, &snapshot),
                                 );

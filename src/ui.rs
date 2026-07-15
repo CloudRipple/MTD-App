@@ -11,8 +11,8 @@ use crate::{
     models::{JobSnapshot, PreviewMode, Segment, SubtitleExportFormat},
     platform::open_path,
     theme::{
-        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, WINDOW_CORNER_RADIUS,
-        panel_frame, preview_frame,
+        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, SURFACE,
+        WINDOW_CORNER_RADIUS, panel_frame,
     },
     video_preview::{VideoPreview, fallback_duration},
 };
@@ -27,6 +27,9 @@ const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
 const VIDEO_PREVIEW_ASPECT: f32 = 16.0 / 9.0;
 const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
 const OUTPUT_CHIP_GAP: f32 = 12.0;
+const REVIEW_SPLITTER_HEIGHT: f32 = 14.0;
+const MIN_MEDIA_REVIEW_HEIGHT: f32 = 230.0;
+const MIN_SUBTITLE_REVIEW_HEIGHT: f32 = 180.0;
 #[cfg(not(target_os = "macos"))]
 const TITLE_BAR_HEIGHT: f32 = 38.0;
 #[cfg(not(target_os = "macos"))]
@@ -674,16 +677,50 @@ impl MtdApp {
     }
 
     pub(crate) fn render_review_area(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot) {
-        let panel_height = ui.available_height().max(260.0);
-        preview_frame().show(ui, |ui| {
-            ui.set_min_height(review_panel_body_height(panel_height));
-            self.render_media_review(ui, snapshot, panel_height);
-            ui.add_space(10.0);
-            ui.separator();
-            ui.add_space(8.0);
-            let subtitle_height = ui.available_height().max(140.0);
-            self.render_subtitle_review(ui, snapshot, subtitle_height);
-        });
+        let panel_size = ui.available_size();
+        let (panel_rect, _) = ui.allocate_exact_size(panel_size, egui::Sense::hover());
+        ui.painter().rect(
+            panel_rect,
+            egui::CornerRadius::same(9),
+            SURFACE,
+            egui::Stroke::new(1.0_f32, BORDER),
+            egui::StrokeKind::Inside,
+        );
+        let content_rect = panel_rect.shrink(14.0);
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(content_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+            |ui| {
+                let available_height = ui.available_height();
+                let (media_height, subtitle_height) =
+                    review_section_heights(available_height, self.review_split_ratio);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), media_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| self.render_media_review(ui, snapshot, media_height),
+                );
+
+                let splitter = review_splitter(ui);
+                if splitter.dragged() {
+                    let (content_height, media_min, media_max) =
+                        review_media_height_bounds(available_height);
+                    let pointer_delta = ui.ctx().input(|input| input.pointer.delta().y);
+                    self.review_split_ratio = ((media_height + pointer_delta)
+                        .clamp(media_min, media_max)
+                        / content_height)
+                        .clamp(0.0, 1.0);
+                    ui.ctx().request_repaint();
+                }
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), subtitle_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| self.render_subtitle_review(ui, snapshot, subtitle_height),
+                );
+            },
+        );
     }
 
     fn render_media_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
@@ -715,12 +752,13 @@ impl MtdApp {
             .input_video_path
             .as_deref()
             .or(snapshot.input_media_path.as_deref());
+        let surface_height = (height - VIDEO_HEADER_HEIGHT - 6.0).max(120.0);
         let (Some(media_path), Some(srt_path)) = (media_path, snapshot.srt_path.as_deref()) else {
-            media_empty_surface(ui, "选择媒体并生成字幕后可在这里播放检查", height);
+            media_empty_surface(ui, "选择媒体并生成字幕后可在这里播放检查", surface_height);
             return;
         };
         if snapshot.segments.is_empty() {
-            media_empty_surface(ui, "生成字幕后可在这里播放检查", height);
+            media_empty_surface(ui, "生成字幕后可在这里播放检查", surface_height);
             return;
         }
 
@@ -741,7 +779,8 @@ impl MtdApp {
         self.video_preview.sync_frame(ui.ctx());
 
         let duration = self.video_preview.duration().unwrap_or(fallback_duration);
-        let max_video_height = (height * 0.54).clamp(300.0, 400.0);
+        let max_video_height =
+            (height - VIDEO_HEADER_HEIGHT - VIDEO_CONTROLS_HEIGHT - 12.0).max(120.0);
         let (surface_width, surface_height) =
             fitted_video_surface_size(ui.available_width(), max_video_height);
         media_surface(
@@ -789,7 +828,7 @@ impl MtdApp {
             },
         );
         ui.add_space(8.0);
-        let content_height = (height - 36.0).max(112.0);
+        let content_height = (height - 36.0).max(0.0);
 
         if has_subtitle_preview(&snapshot.preview) {
             match self.preview_mode {
@@ -1750,20 +1789,26 @@ fn error_box(ui: &mut egui::Ui, error: &str) {
 }
 
 fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
-    let body_height =
-        (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(88.0);
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(249, 251, 252))
-        .stroke(egui::Stroke::new(
-            1.0_f32,
-            egui::Color32::from_rgb(226, 233, 236),
-        ))
-        .corner_radius(8.0)
-        .inner_margin(egui::Margin::symmetric(14, 12))
-        .show(ui, |ui| {
-            ui.set_min_height(body_height);
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), content_height.max(0.0)),
+        egui::Sense::hover(),
+    );
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(8),
+        egui::Color32::from_rgb(249, 251, 252),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(226, 233, 236)),
+        egui::StrokeKind::Inside,
+    );
+    let content_rect = rect.shrink2(egui::vec2(14.0, 12.0));
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(content_rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            let body_height = content_rect.height().max(0.0);
             ui.vertical_centered(|ui| {
-                ui.add_space(((body_height - 88.0) * 0.5).clamp(8.0, 80.0));
+                ui.add_space(((body_height - 88.0) * 0.5).clamp(0.0, 80.0));
                 ui.label(
                     egui::RichText::new("等待生成字幕")
                         .size(16.0)
@@ -1779,15 +1824,54 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
                 ui.add_space(8.0);
                 output_chip_row(ui, &["SRT", "VTT", "TXT", "JSON"]);
             });
-        });
+        },
+    );
 }
 
 fn review_panel_body_height(panel_height: f32) -> f32 {
     (panel_height - 28.0 - PREVIEW_BORDER_RESERVE).max(160.0)
 }
 
-fn media_empty_surface(ui: &mut egui::Ui, message: &str, panel_height: f32) {
-    let height = (panel_height * 0.54).clamp(300.0, 400.0);
+fn review_media_height_bounds(available_height: f32) -> (f32, f32, f32) {
+    let content_height = (available_height - REVIEW_SPLITTER_HEIGHT).max(1.0);
+    let media_min = MIN_MEDIA_REVIEW_HEIGHT.min(content_height * 0.5);
+    let subtitle_min = MIN_SUBTITLE_REVIEW_HEIGHT.min((content_height - media_min).max(0.0));
+    let media_max = (content_height - subtitle_min).max(media_min);
+    (content_height, media_min, media_max)
+}
+
+fn review_section_heights(available_height: f32, ratio: f32) -> (f32, f32) {
+    let (content_height, media_min, media_max) = review_media_height_bounds(available_height);
+    let media_height = (content_height * ratio).clamp(media_min, media_max);
+    (media_height, content_height - media_height)
+}
+
+fn review_splitter(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), REVIEW_SPLITTER_HEIGHT),
+        egui::Sense::drag(),
+    );
+    if response.hovered() || response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
+    let color = if response.hovered() || response.dragged() {
+        ACCENT
+    } else {
+        BORDER
+    };
+    let width = if response.dragged() { 2.0_f32 } else { 1.0_f32 };
+    ui.painter().line_segment(
+        [
+            egui::pos2(rect.left(), rect.center().y),
+            egui::pos2(rect.right(), rect.center().y),
+        ],
+        egui::Stroke::new(width, color),
+    );
+    response
+}
+
+fn media_empty_surface(ui: &mut egui::Ui, message: &str, height: f32) {
+    let height = height.max(120.0);
     let (width, height) = fitted_video_surface_size(ui.available_width(), height);
     let row_width = ui.available_width().max(width);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(row_width, height), egui::Sense::hover());
@@ -2197,7 +2281,7 @@ fn raw_preview(ui: &mut egui::Ui, preview: &str, content_height: f32) {
         .show(ui, |ui| {
             ui.set_min_height(content_height);
             let mut preview = preview.to_owned();
-            let rows = ((content_height / 18.0).floor() as usize).max(8);
+            let rows = ((content_height / 18.0).floor() as usize).max(1);
             ui.add(
                 egui::TextEdit::multiline(&mut preview)
                     .font(egui::TextStyle::Monospace)
@@ -2502,7 +2586,7 @@ fn parse_edit_time(value: &str) -> Option<f64> {
 
 fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
     let body_height =
-        (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(88.0);
+        (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(0.0);
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
@@ -2514,7 +2598,7 @@ fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
         .show(ui, |ui| {
             ui.set_min_height(body_height);
             ui.vertical_centered(|ui| {
-                ui.add_space(((body_height - 66.0) * 0.5).clamp(16.0, 80.0));
+                ui.add_space(((body_height - 66.0) * 0.5).clamp(0.0, 80.0));
                 ui.label(
                     egui::RichText::new("没有可渲染的结构化字幕")
                         .size(16.0)
@@ -2558,7 +2642,10 @@ fn compact_model_name(model: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_edit_time, speaker_field_width};
+    use super::{
+        REVIEW_SPLITTER_HEIGHT, parse_edit_time, review_media_height_bounds,
+        review_section_heights, speaker_field_width,
+    };
 
     #[test]
     fn parses_subtitle_time_editor_values() {
@@ -2576,5 +2663,23 @@ mod tests {
         assert!(short_label < full_name);
         assert!(full_name < long_name);
         assert_eq!(long_name, 112.0);
+    }
+
+    #[test]
+    fn review_sections_always_fit_within_the_panel_height() {
+        for available_height in [300.0, 600.0, 1_000.0] {
+            let (content_height, media_min, media_max) =
+                review_media_height_bounds(available_height);
+            let (media_height, subtitle_height) = review_section_heights(available_height, 0.47);
+
+            assert!(
+                (media_height + subtitle_height + REVIEW_SPLITTER_HEIGHT - available_height).abs()
+                    < f32::EPSILON
+            );
+            assert!(media_height >= media_min);
+            assert!(media_height <= media_max);
+            assert!(subtitle_height >= 0.0);
+            assert!(content_height >= 0.0);
+        }
     }
 }
