@@ -181,7 +181,7 @@ impl eframe::App for MtdApp {
                 ui.painter().rect_stroke(
                     shell_rect,
                     egui::CornerRadius::same(WINDOW_CORNER_RADIUS),
-                    egui::Stroke::new(1.0, BORDER),
+                    egui::Stroke::new(1.0_f32, BORDER),
                     egui::StrokeKind::Inside,
                 );
 

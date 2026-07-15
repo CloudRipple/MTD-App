@@ -253,8 +253,6 @@ mod imp {
 
     pub(super) fn install_file_menu() {}
 
-    pub(super) fn zoom_main_window() {}
-
     pub(super) fn take_open_project_request() -> bool {
         false
     }
@@ -268,6 +266,7 @@ pub(crate) fn adjust_window_controls() {
     imp::adjust_window_controls();
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn zoom_main_window() {
     imp::zoom_main_window();
 }

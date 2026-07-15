@@ -165,6 +165,9 @@ Copy-MingwRuntimeDlls "$EmbeddedFfmpegDir\ffmpeg.exe" $EmbeddedFfmpegDir
 $env:MTD_EMBED_FFMPEG_DIR = (Resolve-Path $EmbeddedFfmpegDir).Path
 $env:MTD_EMBED_UI_FONT = (Resolve-Path $FontFile).Path
 cargo build --release
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
 
 Reset-Directory "dist\windows"
 Copy-Item target\release\mtd-subtitle-app.exe dist\windows\MTDSubtitleApp.exe

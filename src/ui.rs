@@ -11,8 +11,8 @@ use crate::{
     models::{JobSnapshot, PreviewMode, Segment, SubtitleExportFormat},
     platform::open_path,
     theme::{
-        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, panel_frame,
-        preview_frame,
+        ACCENT, ACCENT_DARK, ACCENT_SOFT, BORDER, DANGER, FAINT, INK, MUTED, WINDOW_CORNER_RADIUS,
+        panel_frame, preview_frame,
     },
     video_preview::{VideoPreview, fallback_duration},
 };
@@ -75,7 +75,7 @@ impl MtdApp {
         );
         ui.painter().line_segment(
             [rect.left_bottom(), rect.right_bottom()],
-            egui::Stroke::new(1.0, BORDER),
+            egui::Stroke::new(1.0_f32, BORDER),
         );
 
         let menu_rect = egui::Rect::from_min_size(
@@ -419,7 +419,7 @@ impl MtdApp {
             .min_size(egui::vec2(96.0, 32.0))
             .fill(ACCENT_SOFT)
             .stroke(egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 egui::Color32::from_rgb(190, 226, 221),
             ))
             .corner_radius(8.0),
@@ -550,7 +550,7 @@ impl MtdApp {
             egui::Color32::from_rgb(236, 241, 243)
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if can_start {
                 ACCENT
             } else {
@@ -584,7 +584,7 @@ impl MtdApp {
             egui::Color32::from_rgb(236, 241, 243)
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if can_burn {
                 egui::Color32::from_rgb(190, 226, 221)
             } else {
@@ -814,7 +814,7 @@ impl MtdApp {
             .min_size(egui::vec2(70.0, 26.0))
             .fill(ACCENT_SOFT)
             .stroke(egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 egui::Color32::from_rgb(190, 226, 221),
             ))
             .corner_radius(13.0),
@@ -1139,7 +1139,7 @@ fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool, width: f32) {
         rect,
         7.0,
         fill,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Inside,
     );
 
@@ -1157,7 +1157,7 @@ fn path_pill(ui: &mut egui::Ui, text: &str, selected: bool, width: f32) {
 fn font_pill(ui: &mut egui::Ui, text: &str, width: f32) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(246, 249, 250))
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(7.0)
         .inner_margin(egui::Margin::symmetric(10, 7))
         .show(ui, |ui| {
@@ -1193,7 +1193,7 @@ fn compact_font_size_input(ui: &mut egui::Ui, value: &mut String) -> egui::Respo
         rect,
         6.0,
         egui::Color32::from_rgb(252, 254, 254),
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Inside,
     );
 
@@ -1224,7 +1224,7 @@ fn settings_popup_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(253, 254, 254))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(204, 216, 222),
         ))
         .corner_radius(10.0)
@@ -1240,7 +1240,7 @@ fn settings_popup_frame() -> egui::Frame {
 fn setting_block(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(9.0)
         .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, add_contents);
@@ -1249,7 +1249,7 @@ fn setting_block(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
 fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) -> egui::Response {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(246, 250, 250))
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(10.0)
         .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
@@ -1284,7 +1284,7 @@ fn api_key_field(ui: &mut egui::Ui, api_key: &mut String) -> egui::Response {
             egui::Frame::NONE
                 .fill(egui::Color32::from_rgb(252, 254, 254))
                 .stroke(egui::Stroke::new(
-                    1.0,
+                    1.0_f32,
                     egui::Color32::from_rgb(208, 221, 226),
                 ))
                 .corner_radius(8.0)
@@ -1332,7 +1332,7 @@ fn primary_small_button(label: &str) -> egui::Button<'_> {
     )
     .min_size(egui::vec2(84.0, 28.0))
     .fill(ACCENT)
-    .stroke(egui::Stroke::new(1.0, ACCENT))
+    .stroke(egui::Stroke::new(1.0_f32, ACCENT))
     .corner_radius(8.0)
 }
 
@@ -1353,7 +1353,7 @@ fn setting_row_button(
         rect,
         egui::CornerRadius::same(9),
         fill,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
 
@@ -1464,7 +1464,7 @@ fn export_format_row(ui: &mut egui::Ui, format: SubtitleExportFormat) -> egui::R
         rect,
         egui::CornerRadius::same(8),
         fill,
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
     ui.painter().text(
@@ -1520,7 +1520,7 @@ fn percent_badge(ui: &mut egui::Ui, progress: f32, is_error: bool) {
     let text = if is_error { DANGER } else { INK };
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(240, 244, 246))
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(7.0)
         .inner_margin(egui::Margin::symmetric(9, 5))
         .show(ui, |ui| {
@@ -1733,7 +1733,7 @@ fn error_box(ui: &mut egui::Ui, error: &str) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(253, 241, 239))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(239, 196, 191),
         ))
         .corner_radius(8.0)
@@ -1755,7 +1755,7 @@ fn empty_preview(ui: &mut egui::Ui, content_height: f32) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(249, 251, 252))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(8.0)
@@ -1796,7 +1796,7 @@ fn media_empty_surface(ui: &mut egui::Ui, message: &str, panel_height: f32) {
         rect,
         egui::CornerRadius::same(9),
         egui::Color32::from_rgb(18, 27, 34),
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 43, 51)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(30, 43, 51)),
         egui::StrokeKind::Outside,
     );
     ui.painter().text(
@@ -1874,7 +1874,7 @@ fn media_surface(
         rect,
         egui::CornerRadius::same(9),
         egui::Color32::from_rgb(15, 23, 29),
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 43, 51)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(30, 43, 51)),
         egui::StrokeKind::Outside,
     );
 
@@ -1909,7 +1909,7 @@ fn media_surface(
             badge_rect,
             egui::CornerRadius::same(13),
             egui::Color32::from_rgba_premultiplied(18, 27, 34, 210),
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(49, 67, 77)),
+            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(49, 67, 77)),
             egui::StrokeKind::Outside,
         );
         ui.painter().text(
@@ -2051,7 +2051,7 @@ fn video_scrubber(ui: &mut egui::Ui, time: &mut f64, duration: f64, width: f32) 
         handle_center,
         6.0,
         egui::Color32::from_rgb(247, 250, 251),
-        egui::Stroke::new(1.5, egui::Color32::from_rgb(75, 88, 98)),
+        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(75, 88, 98)),
     );
 
     response
@@ -2105,7 +2105,7 @@ fn output_chip(ui: &mut egui::Ui, label: &str) {
         rect,
         egui::CornerRadius::same((OUTPUT_CHIP_HEIGHT * 0.5) as u8),
         egui::Color32::from_rgb(239, 245, 247),
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
     ui.painter().text(
@@ -2143,7 +2143,7 @@ fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
         rect,
         radius,
         egui::Color32::from_rgb(239, 245, 247),
-        egui::Stroke::new(1.0, BORDER),
+        egui::Stroke::new(1.0_f32, BORDER),
         egui::StrokeKind::Outside,
     );
 
@@ -2160,7 +2160,7 @@ fn preview_mode_switch(ui: &mut egui::Ui, mode: &mut PreviewMode) {
         selected_rect,
         egui::CornerRadius::same(11),
         ACCENT_SOFT,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(190, 226, 221)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(190, 226, 221)),
         egui::StrokeKind::Outside,
     );
 
@@ -2259,7 +2259,7 @@ fn segment_row(
             egui::Color32::from_rgb(247, 250, 251)
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if active {
                 egui::Color32::from_rgb(166, 215, 207)
             } else {
@@ -2328,7 +2328,7 @@ fn segment_row(
 fn speaker_name_row(ui: &mut egui::Ui, speaker: &str, names: &mut BTreeMap<String, String>) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(8.0)
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
@@ -2354,7 +2354,7 @@ fn editable_time_field(ui: &mut egui::Ui, value: &mut String, invalid: bool) -> 
             egui::Color32::from_rgb(252, 254, 254)
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if invalid {
                 DANGER
             } else {
@@ -2399,7 +2399,7 @@ fn editable_speaker_field(ui: &mut egui::Ui, speaker: &mut String) -> egui::Resp
     egui::Frame::NONE
         .fill(ACCENT_SOFT)
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(190, 226, 221),
         ))
         .corner_radius(999.0)
@@ -2427,7 +2427,7 @@ fn editable_subtitle_field(ui: &mut egui::Ui, text: &mut String) -> egui::Respon
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(252, 254, 254))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(7.0)
@@ -2506,7 +2506,7 @@ fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgb(247, 250, 251))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             egui::Color32::from_rgb(226, 233, 236),
         ))
         .corner_radius(8.0)

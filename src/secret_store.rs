@@ -9,6 +9,9 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 
+#[cfg(windows)]
+use crate::platform::hide_command_window;
+
 const APP_DIR: &str = ".mtd-subtitle-app";
 const CREDENTIALS_FILE: &str = "credentials.json";
 #[cfg(target_os = "macos")]

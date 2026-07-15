@@ -15,7 +15,7 @@ pub(crate) const WINDOW_CORNER_RADIUS: u8 = 14;
 pub(crate) fn panel_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(SURFACE)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(9.0)
         .inner_margin(egui::Margin::same(15))
 }
@@ -23,7 +23,7 @@ pub(crate) fn panel_frame() -> egui::Frame {
 pub(crate) fn preview_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(SURFACE)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, BORDER))
         .corner_radius(9.0)
         .inner_margin(egui::Margin::same(14))
 }
@@ -39,12 +39,12 @@ pub(crate) fn install_app_style(ctx: &egui::Context) {
     style.visuals.faint_bg_color = egui::Color32::from_rgb(238, 243, 245);
     style.visuals.extreme_bg_color = egui::Color32::from_rgb(247, 250, 251);
     style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(248, 250, 251);
-    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER);
+    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, BORDER);
     style.visuals.widgets.hovered.bg_fill = ACCENT_SOFT;
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT);
     style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(204, 232, 228);
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ACCENT_DARK);
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, BORDER);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, ACCENT_DARK);
+    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, BORDER);
     style.visuals.selection.bg_fill = ACCENT;
     style.visuals.hyperlink_color = ACCENT_DARK;
     ctx.set_style(style);

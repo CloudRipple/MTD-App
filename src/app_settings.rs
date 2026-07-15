@@ -8,6 +8,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 
+#[cfg(windows)]
+use crate::platform::hide_command_window;
 use crate::{config::DEFAULT_MODEL, platform::default_output_dir};
 
 const APP_DIR: &str = ".mtd-subtitle-app";
