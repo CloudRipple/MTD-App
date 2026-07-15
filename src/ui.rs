@@ -24,10 +24,12 @@ const VIDEO_HEADER_HEIGHT: f32 = 30.0;
 const VIDEO_BUTTON_WIDTH: f32 = 58.0;
 const VIDEO_TIME_WIDTH: f32 = 76.0;
 const VIDEO_CONTROLS_HEIGHT: f32 = 34.0;
+const VIDEO_CONTROLS_HORIZONTAL_INSET: f32 = 2.0;
 const VIDEO_PREVIEW_ASPECT: f32 = 16.0 / 9.0;
 const OUTPUT_CHIP_HEIGHT: f32 = 26.0;
 const OUTPUT_CHIP_GAP: f32 = 12.0;
 const REVIEW_SPLITTER_HEIGHT: f32 = 14.0;
+const REVIEW_SECTION_GAP_COUNT: f32 = 2.0;
 const MIN_MEDIA_REVIEW_HEIGHT: f32 = 230.0;
 const MIN_SUBTITLE_REVIEW_HEIGHT: f32 = 180.0;
 #[cfg(not(target_os = "macos"))]
@@ -693,19 +695,31 @@ impl MtdApp {
                 .layout(egui::Layout::top_down(egui::Align::Min)),
             |ui| {
                 let available_height = ui.available_height();
-                let (media_height, subtitle_height) =
-                    review_section_heights(available_height, self.review_split_ratio);
-
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), media_height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| self.render_media_review(ui, snapshot, media_height),
+                let item_spacing_y = ui.spacing().item_spacing.y;
+                let section_height = review_section_layout_height(available_height, item_spacing_y);
+                let has_playback_controls = (snapshot.input_media_path.is_some()
+                    || snapshot.input_video_path.is_some())
+                    && snapshot.srt_path.is_some()
+                    && !snapshot.segments.is_empty();
+                let media_height_cap = review_media_height_cap(
+                    ui.available_width(),
+                    item_spacing_y,
+                    has_playback_controls,
                 );
+                let (media_height, subtitle_height) = review_section_heights(
+                    section_height,
+                    self.review_split_ratio,
+                    media_height_cap,
+                );
+
+                review_section(ui, "media-review-section", media_height, |ui| {
+                    self.render_media_review(ui, snapshot, media_height);
+                });
 
                 let splitter = review_splitter(ui);
                 if splitter.dragged() {
                     let (content_height, media_min, media_max) =
-                        review_media_height_bounds(available_height);
+                        review_media_height_bounds(section_height, media_height_cap);
                     let pointer_delta = ui.ctx().input(|input| input.pointer.delta().y);
                     self.review_split_ratio = ((media_height + pointer_delta)
                         .clamp(media_min, media_max)
@@ -714,16 +728,14 @@ impl MtdApp {
                     ui.ctx().request_repaint();
                 }
 
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), subtitle_height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| self.render_subtitle_review(ui, snapshot, subtitle_height),
-                );
+                review_section(ui, "subtitle-review-section", subtitle_height, |ui| {
+                    self.render_subtitle_review(ui, snapshot, subtitle_height);
+                });
             },
         );
     }
 
-    fn render_media_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
+    fn render_media_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, _height: f32) {
         let has_media = snapshot.input_media_path.is_some() || snapshot.input_video_path.is_some();
         let has_video = snapshot.input_video_path.is_some();
         let label = if self.video_preview.is_playing() {
@@ -752,7 +764,7 @@ impl MtdApp {
             .input_video_path
             .as_deref()
             .or(snapshot.input_media_path.as_deref());
-        let surface_height = (height - VIDEO_HEADER_HEIGHT - 6.0).max(120.0);
+        let surface_height = ui.available_height().max(120.0);
         let (Some(media_path), Some(srt_path)) = (media_path, snapshot.srt_path.as_deref()) else {
             media_empty_surface(ui, "选择媒体并生成字幕后可在这里播放检查", surface_height);
             return;
@@ -780,7 +792,8 @@ impl MtdApp {
 
         let duration = self.video_preview.duration().unwrap_or(fallback_duration);
         let max_video_height =
-            (height - VIDEO_HEADER_HEIGHT - VIDEO_CONTROLS_HEIGHT - 12.0).max(120.0);
+            (ui.available_height() - VIDEO_CONTROLS_HEIGHT - 6.0 - ui.spacing().item_spacing.y)
+                .max(120.0);
         let (surface_width, surface_height) =
             fitted_video_surface_size(ui.available_width(), max_video_height);
         media_surface(
@@ -794,7 +807,7 @@ impl MtdApp {
         video_controls(ui, &mut self.video_preview, duration);
     }
 
-    fn render_subtitle_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, height: f32) {
+    fn render_subtitle_review(&mut self, ui: &mut egui::Ui, snapshot: &JobSnapshot, _height: f32) {
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), 28.0),
             egui::Layout::left_to_right(egui::Align::Center),
@@ -828,7 +841,7 @@ impl MtdApp {
             },
         );
         ui.add_space(8.0);
-        let content_height = (height - 36.0).max(0.0);
+        let content_height = ui.available_height().max(0.0);
 
         if has_subtitle_preview(&snapshot.preview) {
             match self.preview_mode {
@@ -1832,18 +1845,57 @@ fn review_panel_body_height(panel_height: f32) -> f32 {
     (panel_height - 28.0 - PREVIEW_BORDER_RESERVE).max(160.0)
 }
 
-fn review_media_height_bounds(available_height: f32) -> (f32, f32, f32) {
+fn review_media_height_bounds(available_height: f32, media_height_cap: f32) -> (f32, f32, f32) {
     let content_height = (available_height - REVIEW_SPLITTER_HEIGHT).max(1.0);
     let media_min = MIN_MEDIA_REVIEW_HEIGHT.min(content_height * 0.5);
     let subtitle_min = MIN_SUBTITLE_REVIEW_HEIGHT.min((content_height - media_min).max(0.0));
-    let media_max = (content_height - subtitle_min).max(media_min);
+    let media_max = (content_height - subtitle_min)
+        .min(media_height_cap.max(media_min))
+        .max(media_min);
     (content_height, media_min, media_max)
 }
 
-fn review_section_heights(available_height: f32, ratio: f32) -> (f32, f32) {
-    let (content_height, media_min, media_max) = review_media_height_bounds(available_height);
+fn review_media_height_cap(width: f32, item_spacing_y: f32, has_controls: bool) -> f32 {
+    let surface_height = width.max(1.0) / VIDEO_PREVIEW_ASPECT;
+    let header_height = VIDEO_HEADER_HEIGHT + item_spacing_y + 6.0;
+    if has_controls {
+        header_height + surface_height + item_spacing_y + 6.0 + VIDEO_CONTROLS_HEIGHT
+    } else {
+        header_height + surface_height
+    }
+}
+
+fn review_section_layout_height(available_height: f32, item_spacing_y: f32) -> f32 {
+    (available_height - item_spacing_y * REVIEW_SECTION_GAP_COUNT).max(0.0)
+}
+
+fn review_section_heights(available_height: f32, ratio: f32, media_height_cap: f32) -> (f32, f32) {
+    let (content_height, media_min, media_max) =
+        review_media_height_bounds(available_height, media_height_cap);
     let media_height = (content_height * ratio).clamp(media_min, media_max);
     (media_height, content_height - media_height)
+}
+
+fn review_section<R>(
+    ui: &mut egui::Ui,
+    id_salt: &'static str,
+    height: f32,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let rect = egui::Rect::from_min_size(
+        ui.next_widget_position(),
+        egui::vec2(ui.available_width(), height),
+    );
+    let mut child_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(id_salt)
+            .max_rect(rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    child_ui.set_clip_rect(rect.intersect(ui.clip_rect()));
+    let result = add_contents(&mut child_ui);
+    ui.advance_cursor_after_rect(rect);
+    result
 }
 
 fn review_splitter(ui: &mut egui::Ui) -> egui::Response {
@@ -2019,11 +2071,13 @@ fn media_surface(
 
 fn video_controls(ui: &mut egui::Ui, preview: &mut VideoPreview, duration: f64) {
     let row_width = ui.available_width();
+    let content_width = (row_width - VIDEO_CONTROLS_HORIZONTAL_INSET * 2.0).max(0.0);
     ui.allocate_ui_with_layout(
         egui::vec2(row_width, VIDEO_CONTROLS_HEIGHT),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
+            ui.add_space(VIDEO_CONTROLS_HORIZONTAL_INSET);
 
             let label = if preview.is_playing() {
                 "暂停"
@@ -2047,7 +2101,8 @@ fn video_controls(ui: &mut egui::Ui, preview: &mut VideoPreview, duration: f64) 
 
             let mut time = preview.current_time();
             let scrubber_width =
-                (row_width - VIDEO_BUTTON_WIDTH - VIDEO_TIME_WIDTH * 2.0 - 8.0 * 3.0).max(120.0);
+                (content_width - VIDEO_BUTTON_WIDTH - VIDEO_TIME_WIDTH * 2.0 - 8.0 * 3.0)
+                    .max(120.0);
             if video_scrubber(ui, &mut time, duration, scrubber_width).changed() {
                 preview.seek(time);
             }
@@ -2643,8 +2698,9 @@ fn compact_model_name(model: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{
-        REVIEW_SPLITTER_HEIGHT, parse_edit_time, review_media_height_bounds,
-        review_section_heights, speaker_field_width,
+        REVIEW_SECTION_GAP_COUNT, REVIEW_SPLITTER_HEIGHT, parse_edit_time,
+        review_media_height_bounds, review_media_height_cap, review_section_heights,
+        review_section_layout_height, speaker_field_width,
     };
 
     #[test]
@@ -2668,12 +2724,21 @@ mod tests {
     #[test]
     fn review_sections_always_fit_within_the_panel_height() {
         for available_height in [300.0, 600.0, 1_000.0] {
+            let item_spacing_y = 12.0;
+            let section_height = review_section_layout_height(available_height, item_spacing_y);
+            let media_height_cap = review_media_height_cap(1_200.0, item_spacing_y, false);
             let (content_height, media_min, media_max) =
-                review_media_height_bounds(available_height);
-            let (media_height, subtitle_height) = review_section_heights(available_height, 0.47);
+                review_media_height_bounds(section_height, media_height_cap);
+            let (media_height, subtitle_height) =
+                review_section_heights(section_height, 0.47, media_height_cap);
 
             assert!(
-                (media_height + subtitle_height + REVIEW_SPLITTER_HEIGHT - available_height).abs()
+                (media_height
+                    + subtitle_height
+                    + REVIEW_SPLITTER_HEIGHT
+                    + item_spacing_y * REVIEW_SECTION_GAP_COUNT
+                    - available_height)
+                    .abs()
                     < f32::EPSILON
             );
             assert!(media_height >= media_min);
@@ -2681,5 +2746,19 @@ mod tests {
             assert!(subtitle_height >= 0.0);
             assert!(content_height >= 0.0);
         }
+    }
+
+    #[test]
+    fn review_splitter_honors_subtitle_and_media_limits() {
+        let available_height = 1_000.0;
+        let (content_height, _, subtitle_limited_max) =
+            review_media_height_bounds(available_height, f32::INFINITY);
+        assert_eq!(content_height - subtitle_limited_max, 180.0);
+
+        let media_limited_height = 600.0;
+        let (_, _, media_limited_max) =
+            review_media_height_bounds(available_height, media_limited_height);
+        assert_eq!(media_limited_max, media_limited_height);
+        assert!(content_height - media_limited_max > 180.0);
     }
 }

@@ -34,7 +34,6 @@ use crate::{
 const RESIZE_HANDLE_SIZE: f32 = 6.0;
 #[cfg(not(target_os = "macos"))]
 const RESIZE_CORNER_SIZE: f32 = 16.0;
-const REVIEW_AREA_BOTTOM_GAP: f32 = 16.0;
 
 struct SettingsSaveResult {
     generation: u64,
@@ -207,10 +206,7 @@ impl eframe::App for MtdApp {
                                 );
                                 ui.add_space(12.0);
                                 ui.allocate_ui_with_layout(
-                                    egui::vec2(
-                                        ui.available_width(),
-                                        (height - REVIEW_AREA_BOTTOM_GAP).max(160.0),
-                                    ),
+                                    egui::vec2(ui.available_width(), height),
                                     egui::Layout::top_down(egui::Align::Min),
                                     |ui| self.render_review_area(ui, &snapshot),
                                 );
