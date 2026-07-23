@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+};
 
 use eframe::egui;
 
@@ -1014,6 +1017,11 @@ impl MtdApp {
             return;
         }
 
+        sync_time_edit_cache(
+            segments,
+            &mut self.time_edits_signature,
+            &mut self.time_edits,
+        );
         let speaker_names = self.speaker_names.clone();
         let mut edits = Vec::new();
         let current_time = self.video_preview.current_time();
@@ -2639,6 +2647,32 @@ fn parse_edit_time(value: &str) -> Option<f64> {
     seconds.is_finite().then_some(seconds.max(0.0))
 }
 
+fn sync_time_edit_cache(
+    segments: &[Segment],
+    source_signature: &mut Option<u64>,
+    time_edits: &mut BTreeMap<usize, (String, String)>,
+) {
+    let signature = segment_time_signature(segments);
+    if *source_signature != Some(signature) {
+        time_edits.clear();
+        *source_signature = Some(signature);
+    }
+}
+
+fn segment_time_signature(segments: &[Segment]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    segments.len().hash(&mut hasher);
+    for segment in segments {
+        segment.start.to_bits().hash(&mut hasher);
+        segment.end.to_bits().hash(&mut hasher);
+        segment.raw_start.hash(&mut hasher);
+        segment.raw_end.hash(&mut hasher);
+        segment.start_valid.hash(&mut hasher);
+        segment.end_valid.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 fn empty_structured_preview(ui: &mut egui::Ui, content_height: f32) {
     let body_height =
         (content_height - PREVIEW_CHILD_VERTICAL_INSET - PREVIEW_BORDER_RESERVE).max(0.0);
@@ -2700,8 +2734,10 @@ mod tests {
     use super::{
         REVIEW_SECTION_GAP_COUNT, REVIEW_SPLITTER_HEIGHT, parse_edit_time,
         review_media_height_bounds, review_media_height_cap, review_section_heights,
-        review_section_layout_height, speaker_field_width,
+        review_section_layout_height, speaker_field_width, sync_time_edit_cache,
     };
+    use crate::models::Segment;
+    use std::collections::BTreeMap;
 
     #[test]
     fn parses_subtitle_time_editor_values() {
@@ -2760,5 +2796,36 @@ mod tests {
             review_media_height_bounds(available_height, media_limited_height);
         assert_eq!(media_limited_max, media_limited_height);
         assert!(content_height - media_limited_max > 180.0);
+    }
+
+    #[test]
+    fn time_edit_cache_is_scoped_to_current_segment_times() {
+        let mut signature = None;
+        let mut edits = BTreeMap::from([(0, ("00:02.540".to_owned(), "00:04.490".to_owned()))]);
+        let first = vec![segment(0.37, 1.72)];
+
+        sync_time_edit_cache(&first, &mut signature, &mut edits);
+        assert!(edits.is_empty());
+
+        edits.insert(0, ("draft".to_owned(), "draft".to_owned()));
+        sync_time_edit_cache(&first, &mut signature, &mut edits);
+        assert_eq!(edits.len(), 1);
+
+        let replacement = vec![segment(12.22, 13.91)];
+        sync_time_edit_cache(&replacement, &mut signature, &mut edits);
+        assert!(edits.is_empty());
+    }
+
+    fn segment(start: f64, end: f64) -> Segment {
+        Segment {
+            start,
+            end,
+            raw_start: None,
+            raw_end: None,
+            start_valid: true,
+            end_valid: true,
+            speaker: "S01".to_owned(),
+            text: "text".to_owned(),
+        }
     }
 }

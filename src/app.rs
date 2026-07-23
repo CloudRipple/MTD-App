@@ -66,6 +66,7 @@ pub(crate) struct MtdApp {
     pub(crate) video_preview: VideoPreview,
     pub(crate) speaker_names: BTreeMap<String, String>,
     pub(crate) time_edits: BTreeMap<usize, (String, String)>,
+    pub(crate) time_edits_signature: Option<u64>,
     pub(crate) job: Arc<Mutex<JobSnapshot>>,
     pub(crate) running: bool,
     pub(crate) burning: bool,
@@ -130,6 +131,7 @@ impl Default for MtdApp {
             video_preview: VideoPreview::default(),
             speaker_names: BTreeMap::new(),
             time_edits: BTreeMap::new(),
+            time_edits_signature: None,
             job: Arc::new(Mutex::new(JobSnapshot::default())),
             running: false,
             burning: false,
@@ -348,6 +350,7 @@ impl MtdApp {
                 self.video_preview.reset();
                 self.speaker_names.clear();
                 self.time_edits.clear();
+                self.time_edits_signature = None;
                 self.video_path = snapshot
                     .input_media_path
                     .clone()
@@ -481,6 +484,7 @@ impl MtdApp {
         self.video_preview.reset();
         self.speaker_names.clear();
         self.time_edits.clear();
+        self.time_edits_signature = None;
         {
             let mut state = job.lock().expect("job lock");
             *state = JobSnapshot {
